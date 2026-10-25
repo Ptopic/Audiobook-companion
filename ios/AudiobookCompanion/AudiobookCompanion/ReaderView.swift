@@ -476,20 +476,22 @@ private struct ReaderWebView: UIViewRepresentable {
             const py = y * window.innerHeight / viewHeight;
             const markerSelector = 'span[id^="kaud-"]';
             const interactiveSelector = 'a, button, input, select, textarea, summary, label, [contenteditable], [role="button"], [role="link"], img, svg, video, audio, iframe, canvas, object, embed';
-            const generatedLinkSelector = 'a[href^="audiobook-reader://segment/"]';
             const contains = rect => rect.width > 0 && rect.height > 0 &&
                 px >= rect.left - 3 && px <= rect.right + 3 &&
                 py >= rect.top - 3 && py <= rect.bottom + 3;
             const overlaps = element => Array.from(element.getClientRects()).some(contains);
             const hit = document.elementFromPoint(px, py);
             const interactive = hit?.closest(interactiveSelector);
-            const generatedMarker = interactive?.matches(generatedLinkSelector)
-                ? interactive.parentElement : null;
-            const generatedLink = generatedMarker?.matches(markerSelector) &&
-                interactive.getAttribute('href') ===
-                    'audiobook-reader://segment/' + token + '/' + generatedMarker.id;
-            if (interactive && !generatedLink) {
-                return { status: 'interactive', tag: interactive.tagName.toLowerCase() };
+            const isAnchor = interactive?.tagName === 'A';
+            const generatedLink = isAnchor &&
+                globalThis.__audiobookReaderGeneratedLinks?.has(interactive) === true;
+            const generatedMarker = generatedLink ? interactive.parentElement : null;
+            if (interactive && (!generatedMarker?.matches(markerSelector) ||
+                !/^kaud-\\d+$/.test(generatedMarker.id))) {
+                const kind = generatedLink ? 'generated-invalid-marker' :
+                    isAnchor && interactive.getAttribute('href')?.startsWith('audiobook-reader://segment/')
+                        ? 'generated-unregistered' : isAnchor ? 'authored-anchor' : 'other';
+                return { status: 'interactive', tag: interactive.tagName.toLowerCase(), kind };
             }
 
             const directMarker = hit?.closest(markerSelector);
@@ -512,8 +514,7 @@ private struct ReaderWebView: UIViewRepresentable {
                 do {
                     let value = try await webView.callAsyncJavaScript(
                         script, arguments: ["x": point.x, "y": point.y,
-                                            "viewWidth": webView.bounds.width, "viewHeight": webView.bounds.height,
-                                            "token": self.linkToken],
+                                            "viewWidth": webView.bounds.width, "viewHeight": webView.bounds.height],
                         in: nil, contentWorld: .world(name: "audiobook-reader")
                     )
                     guard self.pageReady, self.lastChapterID == chapterID,
@@ -526,8 +527,14 @@ private struct ReaderWebView: UIViewRepresentable {
                         let detail: String
                         switch status {
                         case "interactive":
-                            let tag = (result["tag"] as? String).flatMap { $0.count <= 32 ? $0 : nil } ?? "element"
-                            detail = "Original <\(tag)> tapped"
+                            switch result["kind"] as? String {
+                            case "authored-anchor": detail = "Authored <a> tapped"
+                            case "generated-unregistered": detail = "Generated <a> not registered"
+                            case "generated-invalid-marker": detail = "Generated <a> has invalid marker"
+                            default:
+                                let tag = (result["tag"] as? String).flatMap { $0.count <= 32 ? $0 : nil } ?? "element"
+                                detail = "Interactive <\(tag)> tapped"
+                            }
                         case "ambiguous": detail = "Multiple markers at point"
                         case "no-marker": detail = "No marker at point"
                         default: detail = "Unexpected marker result"
@@ -737,6 +744,9 @@ private struct ReaderWebView: UIViewRepresentable {
             let token = linkToken
             let script = """
             const excluded = 'a, button, input, select, textarea, summary, label, [contenteditable], [role="button"], [role="link"], img, svg, video, audio, iframe, canvas, object, embed, p, div, ul, ol, li, table, blockquote';
+            // This set lives in the isolated content world and tracks only links created below.
+            const generatedLinks = globalThis.__audiobookReaderGeneratedLinks ?? new WeakSet();
+            globalThis.__audiobookReaderGeneratedLinks = generatedLinks;
             for (const marker of document.querySelectorAll('span[id^="kaud-"]')) {
                 if (!/^kaud-\\d+$/.test(marker.id) || marker.closest('a') || marker.querySelector(excluded)) continue;
                 const link = document.createElement('a');
@@ -756,6 +766,7 @@ private struct ReaderWebView: UIViewRepresentable {
                 link.style.setProperty('-webkit-touch-callout', 'none', 'important');
                 while (marker.firstChild) link.appendChild(marker.firstChild);
                 marker.appendChild(link);
+                generatedLinks.add(link);
             }
             return true;
             """
