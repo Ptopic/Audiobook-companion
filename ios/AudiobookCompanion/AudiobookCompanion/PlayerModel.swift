@@ -73,6 +73,11 @@ enum PlaybackStateStore {
 
 @MainActor
 final class PlayerModel: ObservableObject {
+    private enum PlaybackErrorSource {
+        case seek
+        case playback
+    }
+
     @Published private(set) var activeChapter: AudiobookChapter?
     @Published private(set) var currentTime: TimeInterval = 0
     @Published private(set) var isPlaying = false
@@ -101,9 +106,16 @@ final class PlayerModel: ObservableObject {
     private var lastPersistedPosition: TimeInterval = -1
     private var seekGeneration = 0
     private var pendingSeekGeneration: Int?
+    private var playbackErrorSource: PlaybackErrorSource?
     private var playbackPolicy = PlaybackPolicy()
 
     var activeBookID: String? { bookID }
+    var isSeekPending: Bool { pendingSeekGeneration != nil }
+    var actualPlaybackTime: TimeInterval? {
+        guard let player, player.currentItem != nil else { return nil }
+        let time = player.currentTime().seconds
+        return time.isFinite ? time : nil
+    }
 
     init() {
         installRemoteCommands()
@@ -139,7 +151,7 @@ final class PlayerModel: ObservableObject {
         activeChapter = chapter
         currentTime = min(max(initialPosition ?? 0, 0), max(chapter.duration, 0))
         isPlaying = false
-        playbackError = nil
+        setPlaybackError(nil, source: nil)
         player = AVPlayer(url: audioURL)
         if initialPosition != nil, let player {
             let generation = seekGeneration
@@ -176,10 +188,10 @@ final class PlayerModel: ObservableObject {
             try session.setCategory(.playback, mode: .spokenAudio)
             try session.setActive(true)
         } catch {
-            playbackError = "Audio playback is unavailable: \(error.localizedDescription)"
+            setPlaybackError("Audio playback is unavailable: \(error.localizedDescription)", source: .playback)
             return
         }
-        playbackError = nil
+        setPlaybackError(nil, source: nil)
         playbackPolicy.didPlay()
         if let chapter = activeChapter, currentTime >= chapter.duration, chapter.duration > 0 {
             seek(to: 0, autoPlay: true)
@@ -204,6 +216,7 @@ final class PlayerModel: ObservableObject {
 
     func seek(to seconds: TimeInterval, autoPlay: Bool = false) {
         guard let player else { return }
+        if playbackErrorSource == .seek { setPlaybackError(nil, source: nil) }
         let bounded = max(0, min(seconds, activeChapter?.duration ?? seconds))
         let target = CMTime(seconds: bounded, preferredTimescale: 600)
         seekGeneration += 1
@@ -225,9 +238,20 @@ final class PlayerModel: ObservableObject {
                         self.persistCheckpoint(force: true)
                         self.updateNowPlayingInfo()
                     }
+                    if self.playbackErrorSource != .playback {
+                        self.setPlaybackError("Could not seek to the selected passage.", source: .seek)
+                    }
                     return
                 }
-                self.currentTime = bounded
+                let actualTime = player.currentTime().seconds
+                guard actualTime.isFinite else {
+                    if self.playbackErrorSource != .playback {
+                        self.setPlaybackError("Could not confirm the selected passage position.", source: .seek)
+                    }
+                    return
+                }
+                self.currentTime = actualTime
+                self.persistCheckpoint(force: true)
                 if autoPlay && self.playbackPolicy.canAutoPlaySeek(startedAt: intentGeneration) { self.play() }
                 self.updateNowPlayingInfo()
             }
@@ -261,7 +285,7 @@ final class PlayerModel: ObservableObject {
         activeChapter = nil
         currentTime = 0
         isPlaying = false
-        playbackError = nil
+        setPlaybackError(nil, source: nil)
         lastPersistedPosition = -1
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         updateRemoteCommandAvailability()
@@ -350,8 +374,13 @@ final class PlayerModel: ObservableObject {
 
     private func failPlayback(_ error: Error?) {
         pause()
-        playbackError = error.map { "Playback failed: \($0.localizedDescription)" }
-            ?? "Playback failed. Please try again."
+        setPlaybackError(error.map { "Playback failed: \($0.localizedDescription)" }
+            ?? "Playback failed. Please try again.", source: .playback)
+    }
+
+    private func setPlaybackError(_ message: String?, source: PlaybackErrorSource?) {
+        playbackErrorSource = message == nil ? nil : source
+        playbackError = message
     }
 
     private func installAudioSessionObservers() {

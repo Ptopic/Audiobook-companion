@@ -170,6 +170,12 @@ struct ReaderView: View {
                     followRequest += 1
                     onPlaySegment(chapter, segment)
                     showTapDiagnostic("\(source) | Marker \(id) | In chapter | Seek invoked")
+                    let request = tapDiagnosticRequest
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(1.25))
+                        guard tapDiagnosticRequest == request, selectedChapterID == chapterID else { return }
+                        showSeekDiagnostic(chapter: chapter, segment: segment)
+                    }
                 }, onTapDiagnostic: { message in
                     guard selectedChapterID == chapterID else { return }
                     showTapDiagnostic(message)
@@ -342,6 +348,30 @@ struct ReaderView: View {
             try? await Task.sleep(for: .seconds(4))
             if tapDiagnosticRequest == request { tapDiagnostic = nil }
         }
+    }
+
+    private func showSeekDiagnostic(chapter: AudiobookChapter, segment: AudiobookSegment) {
+        let activeChapterMatches = player.activeBookID == bookID && player.activeChapter?.id == chapter.id
+        let modelID = activeChapterMatches ? player.currentSegment?.id ?? "none" : "other chapter"
+        let actualTime = player.actualPlaybackTime
+        let actualID = activeChapterMatches
+            ? actualTime.flatMap { time in chapter.segments.last(where: { time >= $0.start && time < $0.end })?.id } ?? "none"
+            : "other chapter"
+        let actualPosition = actualTime.map { String(format: "%.2f", $0) } ?? "unavailable"
+        let status: String
+        if let error = player.playbackError {
+            status = error
+        } else if !activeChapterMatches {
+            status = "Audio chapter did not switch"
+        } else if player.isSeekPending {
+            status = "Seek still pending"
+        } else if actualTime == nil {
+            status = "Player position unavailable"
+        } else {
+            status = actualID == segment.id ? "Player at marker" : "Player at another marker"
+        }
+        let playbackState = player.isPlaying ? "playing" : "paused"
+        showTapDiagnostic("Target \(segment.id) @\(String(format: "%.2f", segment.start))s\nModel \(modelID) @\(String(format: "%.2f", player.currentTime))s | AV \(actualID) @\(actualPosition)s\n\(status) | \(playbackState)")
     }
 
     private func loadChapter(_ chapterID: String) async {
