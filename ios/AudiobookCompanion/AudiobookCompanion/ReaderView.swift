@@ -467,33 +467,61 @@ private struct ReaderWebView: UIViewRepresentable {
                 onTapDiagnostic("Tap received | Outside page bounds")
                 return
             }
+            let scrollOffset = webView.scrollView.contentOffset
             tapRequest += 1
             let request = tapRequest
             let script = """
-            const px = x * window.innerWidth / viewWidth;
-            const py = y * window.innerHeight / viewHeight;
+            const scaleX = window.innerWidth / viewWidth;
+            const scaleY = window.innerHeight / viewHeight;
+            const px = x * scaleX;
+            const py = y * scaleY;
+            const documentX = (x + offsetX) * scaleX;
+            const documentY = (y + offsetY) * scaleY;
+            const bodyRect = document.body.getBoundingClientRect();
             const markerSelector = 'span[id^="kaud-"]';
             const interactiveSelector = 'a[href], button, input, select, textarea, summary, label, [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], img, svg, canvas, video, audio, iframe, object, embed';
-            const contains = rect => rect.width > 0 && rect.height > 0 &&
-                px >= rect.left - 3 && px <= rect.right + 3 &&
-                py >= rect.top - 3 && py <= rect.bottom + 3;
-            const overlaps = element => Array.from(element.getClientRects()).some(contains);
+            // WebKit may report fragment rects before or after applying its native page scroll.
+            // The body and its fragments share a coordinate frame in either case.
+            const contains = (rect, tolerance) => rect.width > 0 && rect.height > 0 &&
+                documentX >= rect.left - bodyRect.left - tolerance &&
+                documentX <= rect.right - bodyRect.left + tolerance &&
+                documentY >= rect.top - bodyRect.top - tolerance &&
+                documentY <= rect.bottom - bodyRect.top + tolerance;
+            const overlaps = (element, tolerance = 3) =>
+                Array.from(element.getClientRects()).some(rect => contains(rect, tolerance));
+            const mapping = Math.abs(bodyRect.left) < 1 ? 'document' : 'viewport';
             const hit = document.elementFromPoint(px, py);
-            const interactive = hit?.closest(interactiveSelector);
-            if (interactive) return { status: 'interactive', tag: interactive.tagName.toLowerCase() };
-
+            let marker = null;
             const directMarker = hit?.closest(markerSelector);
-            if (directMarker && overlaps(directMarker)) return { status: 'marker', id: directMarker.id };
-            const caret = document.caretRangeFromPoint?.(px, py);
-            const caretElement = caret?.startContainer.nodeType === Node.ELEMENT_NODE
-                ? caret.startContainer : caret?.startContainer.parentElement;
-            const caretMarker = caretElement?.closest(markerSelector);
-            if (caretMarker && overlaps(caretMarker)) return { status: 'marker', id: caretMarker.id };
+            if (directMarker && overlaps(directMarker)) marker = directMarker;
+            if (!marker) {
+                const caret = document.caretRangeFromPoint?.(px, py);
+                const caretElement = caret?.startContainer.nodeType === Node.ELEMENT_NODE
+                    ? caret.startContainer : caret?.startContainer.parentElement;
+                const caretMarker = caretElement?.closest(markerSelector);
+                if (caretMarker && overlaps(caretMarker)) marker = caretMarker;
+            }
+            if (!marker) {
+                const matches = Array.from(document.querySelectorAll(markerSelector))
+                    .filter(element => overlaps(element));
+                if (matches.length > 1) return { status: 'ambiguous', mapping };
+                marker = matches[0] ?? null;
+            }
 
-            const matches = Array.from(document.querySelectorAll(markerSelector)).filter(overlaps);
-            return matches.length === 1
-                ? { status: 'marker', id: matches[0].id }
-                : { status: matches.length ? 'ambiguous' : 'no-marker' };
+            const directInteractive = hit?.closest(interactiveSelector);
+            let interactive = directInteractive && overlaps(directInteractive, 0)
+                ? directInteractive : null;
+            if (marker && !interactive) {
+                const ancestor = marker.closest(interactiveSelector);
+                interactive = ancestor && overlaps(ancestor, 0) ? ancestor :
+                    Array.from(marker.querySelectorAll(interactiveSelector))
+                        .find(element => overlaps(element, 0));
+            }
+            if (interactive) return {
+                status: 'interactive', tag: interactive.tagName.toLowerCase(), mapping
+            };
+            return marker ? { status: 'marker', id: marker.id, mapping }
+                : { status: 'no-marker', mapping };
             """
             Task { @MainActor [weak self, weak webView] in
                 guard let webView else { return }
@@ -502,15 +530,19 @@ private struct ReaderWebView: UIViewRepresentable {
                 do {
                     let value = try await webView.callAsyncJavaScript(
                         script, arguments: ["x": point.x, "y": point.y,
+                                            "offsetX": scrollOffset.x, "offsetY": scrollOffset.y,
                                             "viewWidth": webView.bounds.width, "viewHeight": webView.bounds.height],
                         in: nil, contentWorld: .world(name: "audiobook-reader")
                     )
                     guard self.pageReady, self.lastChapterID == chapterID,
                           self.tapRequest == request else { return }
+                    guard abs(webView.scrollView.contentOffset.x - scrollOffset.x) < 3,
+                          abs(webView.scrollView.contentOffset.y - scrollOffset.y) < 3 else { return }
                     guard let result = value as? [String: Any], let status = result["status"] as? String else {
                         self.onTapDiagnostic("Tap received | Invalid marker result")
                         return
                     }
+                    let mapping = result["mapping"] as? String == "viewport" ? "viewport" : "document"
                     guard status == "marker" else {
                         let detail: String
                         switch status {
@@ -518,7 +550,7 @@ private struct ReaderWebView: UIViewRepresentable {
                             let tag = (result["tag"] as? String).flatMap { $0.count <= 32 ? $0 : nil } ?? "element"
                             detail = "Interactive <\(tag)> tapped"
                         case "ambiguous": detail = "Multiple markers at point"
-                        case "no-marker": detail = "No marker at point"
+                        case "no-marker": detail = "No marker at point (\(mapping))"
                         default: detail = "Unexpected marker result"
                         }
                         self.onTapDiagnostic("Tap received | \(detail)")
@@ -528,7 +560,7 @@ private struct ReaderWebView: UIViewRepresentable {
                         self.onTapDiagnostic("Tap received | Invalid marker ID")
                         return
                     }
-                    self.onSelectSegment(id, "Tap")
+                    self.onSelectSegment(id, "Tap \(mapping)")
                 } catch {
                     guard self.pageReady, self.lastChapterID == chapterID,
                           self.tapRequest == request else { return }
