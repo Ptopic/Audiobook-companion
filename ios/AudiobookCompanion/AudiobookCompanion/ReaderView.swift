@@ -33,6 +33,8 @@ struct ReaderView: View {
     @State private var showsContents = false
     @State private var pagePosition: ReaderPagePosition?
     @State private var pageTurnRequest = 0
+    @State private var followsNarration = true
+    @State private var followRequest = 0
 
     init(title: String, bookID: String, chapters: [AudiobookChapter], initialChapterID: String?,
          api: AudiobookAPI, player: PlayerModel, onPlayChapter: @escaping (AudiobookChapter) -> Void) {
@@ -63,6 +65,11 @@ struct ReaderView: View {
 
     private var isSelectedChapterPlaying: Bool {
         activeChapterInBook?.id == selectedChapterID && player.isPlaying
+    }
+
+    private var activeSegmentID: String? {
+        guard activeChapterInBook?.id == selectedChapterID else { return nil }
+        return player.currentSegment?.id
     }
 
     var body: some View {
@@ -104,6 +111,19 @@ struct ReaderView: View {
 
             Spacer(minLength: 0)
 
+            Button {
+                followsNarration = true
+                followRequest += 1
+            } label: {
+                Image(systemName: followsNarration ? "headphones.circle.fill" : "headphones.circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(followsNarration ? Color(red: 0.59, green: 0.33, blue: 0.07) : Color.primary)
+                    .frame(width: 44, height: 44)
+            }
+            .disabled(activeSegmentID == nil)
+            .accessibilityLabel("Follow narration")
+            .accessibilityAddTraits(followsNarration && activeSegmentID != nil ? .isSelected : [])
+
             Button { showsContents = true } label: {
                 Image(systemName: "list.bullet")
                     .font(.system(size: 19, weight: .regular))
@@ -126,10 +146,14 @@ struct ReaderView: View {
                 ProgressView("Loading chapter")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .loaded(let chapterID, let html) where chapterID == selectedChapterID:
-                ReaderWebView(chapterID: chapterID, html: html, pageTurnRequest: pageTurnRequest, onPageChange: { page, total in
+                ReaderWebView(chapterID: chapterID, html: html, activeSegmentID: activeSegmentID,
+                              followsNarration: followsNarration, followRequest: followRequest,
+                              pageTurnRequest: pageTurnRequest, onPageChange: { page, total in
                     guard selectedChapterID == chapterID else { return }
                     let next = ReaderPagePosition(chapterID: chapterID, page: page, total: total)
                     if pagePosition != next { pagePosition = next }
+                }, onManualPageTurn: {
+                    followsNarration = false
                 }, onError: { message in
                     guard selectedChapterID == chapterID else { return }
                     loadState = .failed(chapterID: chapterID, message: message)
@@ -193,6 +217,7 @@ struct ReaderView: View {
 
     private func pageButton(systemName: String, label: String, direction: Int) -> some View {
         Button {
+            followsNarration = false
             pageTurnRequest += direction
         } label: {
             Image(systemName: systemName)
@@ -217,6 +242,7 @@ struct ReaderView: View {
                 if let active = activeChapterInBook, active.id != selectedChapterID {
                     Button {
                         selectedChapterID = active.id
+                        followsNarration = true
                         showsContents = false
                     } label: {
                         Label("Go to playing chapter", systemImage: "headphones")
@@ -225,6 +251,7 @@ struct ReaderView: View {
                 ForEach(Array(chapters.enumerated()), id: \.element.id) { index, chapter in
                     Button {
                         selectedChapterID = chapter.id
+                        followsNarration = false
                         showsContents = false
                     } label: {
                         HStack(spacing: 14) {
@@ -269,6 +296,7 @@ struct ReaderView: View {
         if activeChapterInBook?.id == selectedChapter.id {
             player.togglePlayback()
         } else {
+            followsNarration = true
             onPlayChapter(selectedChapter)
         }
     }
@@ -293,12 +321,17 @@ struct ReaderView: View {
 private struct ReaderWebView: UIViewRepresentable {
     let chapterID: String
     let html: String
+    let activeSegmentID: String?
+    let followsNarration: Bool
+    let followRequest: Int
     let pageTurnRequest: Int
     let onPageChange: (Int, Int) -> Void
+    let onManualPageTurn: () -> Void
     let onError: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(initialPageTurnRequest: pageTurnRequest, onPageChange: onPageChange, onError: onError)
+        Coordinator(initialPageTurnRequest: pageTurnRequest, initialFollowRequest: followRequest,
+                    onPageChange: onPageChange, onManualPageTurn: onManualPageTurn, onError: onError)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -322,23 +355,36 @@ private struct ReaderWebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.show(chapterID: chapterID, html: html, in: webView)
+        context.coordinator.updateNarration(segmentID: activeSegmentID, followsNarration: followsNarration,
+                                            followRequest: followRequest, in: webView)
         context.coordinator.turnPage(ifRequested: pageTurnRequest, in: webView)
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, UIScrollViewDelegate {
         private let onPageChange: (Int, Int) -> Void
+        private let onManualPageTurn: () -> Void
         private let onError: (String) -> Void
         private var rulesReady = false
         private var lastChapterID: String?
         private var pending: (chapterID: String, html: String)?
         private var lastPage: (page: Int, total: Int)?
         private var lastPageTurnRequest: Int
+        private var lastFollowRequest: Int
+        private var activeSegmentID: String?
+        private var displayedSegmentID: String?
+        private var followsNarration = true
+        private var pageReady = false
+        private var highlightRequest = 0
+        private var pendingFollowSegmentID: String?
         private var contentSizeObservation: NSKeyValueObservation?
 
-        init(initialPageTurnRequest: Int, onPageChange: @escaping (Int, Int) -> Void,
+        init(initialPageTurnRequest: Int, initialFollowRequest: Int,
+             onPageChange: @escaping (Int, Int) -> Void, onManualPageTurn: @escaping () -> Void,
              onError: @escaping (String) -> Void) {
             lastPageTurnRequest = initialPageTurnRequest
+            lastFollowRequest = initialFollowRequest
             self.onPageChange = onPageChange
+            self.onManualPageTurn = onManualPageTurn
             self.onError = onError
         }
 
@@ -347,6 +393,10 @@ private struct ReaderWebView: UIViewRepresentable {
                 DispatchQueue.main.async {
                     guard let self, let webView else { return }
                     self.reportPage(in: webView.scrollView)
+                    if self.pageReady, self.followsNarration, self.pendingFollowSegmentID != nil,
+                       webView.scrollView.contentSize.width > webView.scrollView.bounds.width {
+                        self.applyHighlight(in: webView, shouldFollow: true)
+                    }
                 }
             }
             // The endpoint embeds its EPUB resources as data URLs. Deny network resources
@@ -375,7 +425,79 @@ private struct ReaderWebView: UIViewRepresentable {
             guard rulesReady, lastChapterID != chapterID else { return }
             lastChapterID = chapterID
             lastPage = nil
+            pageReady = false
+            displayedSegmentID = nil
+            pendingFollowSegmentID = nil
+            highlightRequest += 1
             webView.loadHTMLString(Self.paginated(html), baseURL: nil)
+        }
+
+        func updateNarration(segmentID: String?, followsNarration: Bool, followRequest: Int,
+                             in webView: WKWebView) {
+            let nextID = segmentID.flatMap { Self.isSegmentID($0) ? $0 : nil }
+            let segmentChanged = activeSegmentID != nextID
+            let followRequested = lastFollowRequest != followRequest
+            activeSegmentID = nextID
+            self.followsNarration = followsNarration
+            if !followsNarration { pendingFollowSegmentID = nil }
+            lastFollowRequest = followRequest
+            guard pageReady, segmentChanged || followRequested || displayedSegmentID != nextID else { return }
+            applyHighlight(in: webView, shouldFollow: followsNarration && (segmentChanged || followRequested))
+        }
+
+        private static func isSegmentID(_ id: String) -> Bool {
+            guard id.hasPrefix("kaud-"), id.count > 5 else { return false }
+            return id.utf8.dropFirst(5).allSatisfy { (48...57).contains($0) }
+        }
+
+        private func applyHighlight(in webView: WKWebView, shouldFollow: Bool) {
+            let id = activeSegmentID
+            displayedSegmentID = id
+            pendingFollowSegmentID = shouldFollow ? id : nil
+            highlightRequest += 1
+            let request = highlightRequest
+            // EPUB scripts stay disabled. App code runs in an isolated world and only
+            // changes the generated segment marker's presentation.
+            let script = """
+            const previous = document.querySelector('span[data-reader-active="true"]');
+            if (previous) {
+                previous.style.removeProperty('background-color');
+                previous.style.removeProperty('-webkit-box-decoration-break');
+                previous.removeAttribute('data-reader-active');
+            }
+            const marker = segmentID ? document.getElementById(segmentID) : null;
+            if (!marker || marker.tagName !== 'SPAN') return null;
+            marker.style.setProperty('background-color', 'rgba(255, 183, 90, 0.34)', 'important');
+            marker.style.setProperty('-webkit-box-decoration-break', 'clone', 'important');
+            marker.setAttribute('data-reader-active', 'true');
+            const rect = marker.getClientRects()[0];
+            return rect ? rect.left + window.scrollX : null;
+            """
+            Task { @MainActor [weak self, weak webView] in
+                guard let webView else { return }
+                let value = try? await webView.callAsyncJavaScript(
+                    script, arguments: ["segmentID": id.map { $0 as Any } ?? NSNull()],
+                    in: nil, contentWorld: .world(name: "audiobook-reader")
+                )
+                guard let self, self.highlightRequest == request,
+                      self.followsNarration, shouldFollow else { return }
+                guard let x = value as? NSNumber else {
+                    self.pendingFollowSegmentID = nil
+                    return
+                }
+                let scrollView = webView.scrollView
+                let width = scrollView.bounds.width
+                guard width > 0 else { return }
+                let absoluteX = max(0, CGFloat(truncating: x))
+                if scrollView.contentSize.width <= width { return }
+                let maximum = max(0, scrollView.contentSize.width - width)
+                let pageX = floor(absoluteX / width) * width
+                let targetX = min(pageX, maximum)
+                self.pendingFollowSegmentID = nil
+                if abs(scrollView.contentOffset.x - targetX) >= width / 2 {
+                    scrollView.setContentOffset(CGPoint(x: targetX, y: 0), animated: true)
+                }
+            }
         }
 
         func turnPage(ifRequested request: Int, in webView: WKWebView) {
@@ -388,6 +510,12 @@ private struct ReaderWebView: UIViewRepresentable {
             let maximum = max(0, scrollView.contentSize.width - width)
             let next = min(max(scrollView.contentOffset.x + CGFloat(direction) * width, 0), maximum)
             scrollView.setContentOffset(CGPoint(x: next, y: 0), animated: true)
+        }
+
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            followsNarration = false
+            pendingFollowSegmentID = nil
+            onManualPageTurn()
         }
 
         private static func paginated(_ html: String) -> String {
@@ -414,6 +542,8 @@ private struct ReaderWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            pageReady = true
+            applyHighlight(in: webView, shouldFollow: followsNarration)
             reportPage(in: webView.scrollView)
         }
 
