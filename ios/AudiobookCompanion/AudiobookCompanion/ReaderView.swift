@@ -365,7 +365,7 @@ private struct ReaderWebView: UIViewRepresentable {
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
         tap.cancelsTouchesInView = false
         tap.delegate = context.coordinator
-        webView.scrollView.addGestureRecognizer(tap)
+        webView.addGestureRecognizer(tap)
         context.coordinator.prepare(webView)
         return webView
     }
@@ -423,14 +423,28 @@ private struct ReaderWebView: UIViewRepresentable {
             tapRequest += 1
             let request = tapRequest
             let script = """
-            const hit = document.elementFromPoint(x * window.innerWidth / viewWidth,
-                                                   y * window.innerHeight / viewHeight);
-            if (!hit || hit.closest('a, button, input, select, textarea, summary, label, [contenteditable], [role="button"], [role="link"], img, svg, video, audio, iframe, canvas, object, embed')) return null;
-            const marker = hit.closest('span[id^="kaud-"]');
-            if (marker) return marker.id;
-            const block = hit.closest('p, li, blockquote, h1, h2, h3, h4, h5, h6');
-            const markers = block ? block.querySelectorAll(':scope > span[id^="kaud-"]') : [];
-            return markers.length === 1 ? markers[0].id : null;
+            const px = x * window.innerWidth / viewWidth;
+            const py = y * window.innerHeight / viewHeight;
+            const markerSelector = 'span[id^="kaud-"]';
+            const interactiveSelector = 'a, button, input, select, textarea, summary, label, [contenteditable], [role="button"], [role="link"], img, svg, video, audio, iframe, canvas, object, embed';
+            const contains = rect => rect.width > 0 && rect.height > 0 &&
+                px >= rect.left - 3 && px <= rect.right + 3 &&
+                py >= rect.top - 3 && py <= rect.bottom + 3;
+            const overlaps = element => Array.from(element.getClientRects()).some(contains);
+            const hit = document.elementFromPoint(px, py);
+            if (hit?.closest(interactiveSelector) ||
+                Array.from(document.querySelectorAll(interactiveSelector)).some(overlaps)) return null;
+
+            const directMarker = hit?.closest(markerSelector);
+            if (directMarker && overlaps(directMarker)) return directMarker.id;
+            const caret = document.caretRangeFromPoint?.(px, py);
+            const caretElement = caret?.startContainer.nodeType === Node.ELEMENT_NODE
+                ? caret.startContainer : caret?.startContainer.parentElement;
+            const caretMarker = caretElement?.closest(markerSelector);
+            if (caretMarker && overlaps(caretMarker)) return caretMarker.id;
+
+            const matches = Array.from(document.querySelectorAll(markerSelector)).filter(overlaps);
+            return matches.length === 1 ? matches[0].id : null;
             """
             Task { @MainActor [weak self, weak webView] in
                 guard let webView else { return }
