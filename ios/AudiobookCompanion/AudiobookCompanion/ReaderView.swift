@@ -479,6 +479,7 @@ private struct ReaderWebView: UIViewRepresentable {
             const documentY = (y + offsetY) * scaleY;
             const bodyRect = document.body.getBoundingClientRect();
             const markerSelector = 'span[id^="kaud-"]';
+            const blockSelector = 'p, li, h1, h2, h3, h4, h5, h6, blockquote';
             const interactiveSelector = 'a[href], button, input, select, textarea, summary, label, [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], img, svg, canvas, video, audio, iframe, object, embed';
             // WebKit may report fragment rects before or after applying its native page scroll.
             // The body and its fragments share a coordinate frame in either case.
@@ -505,6 +506,7 @@ private struct ReaderWebView: UIViewRepresentable {
             const mapping = Math.abs(bodyRect.left) < 1 ? 'document' : 'viewport';
             const hit = document.elementFromPoint(px, py);
             let marker = null;
+            let source = 'range';
             const directMarker = hit?.closest(markerSelector);
             if (directMarker && textOverlaps(directMarker)) marker = directMarker;
             if (!marker) {
@@ -520,10 +522,20 @@ private struct ReaderWebView: UIViewRepresentable {
                 if (matches.length > 1) return { status: 'ambiguous', mapping };
                 marker = matches[0] ?? null;
             }
+            if (!marker) {
+                const block = hit?.closest(blockSelector);
+                if (block) {
+                    const matches = Array.from(block.querySelectorAll(markerSelector));
+                    if (matches.length > 1) return { status: 'ambiguous', mapping };
+                    if (matches.length === 1) {
+                        marker = matches[0];
+                        source = 'block';
+                    }
+                }
+            }
 
             const directInteractive = hit?.closest(interactiveSelector);
-            let interactive = directInteractive && overlaps(directInteractive, 0)
-                ? directInteractive : null;
+            let interactive = directInteractive;
             if (marker && !interactive) {
                 const ancestor = marker.closest(interactiveSelector);
                 interactive = ancestor && overlaps(ancestor, 0) ? ancestor :
@@ -533,7 +545,7 @@ private struct ReaderWebView: UIViewRepresentable {
             if (interactive) return {
                 status: 'interactive', tag: interactive.tagName.toLowerCase(), mapping
             };
-            return marker ? { status: 'marker', id: marker.id, mapping, geometry: 'range' }
+            return marker ? { status: 'marker', id: marker.id, mapping, geometry: source }
                 : { status: 'no-marker', mapping };
             """
             Task { @MainActor [weak self, weak webView] in
@@ -573,7 +585,12 @@ private struct ReaderWebView: UIViewRepresentable {
                         self.onTapDiagnostic("Tap received | Invalid marker ID")
                         return
                     }
-                    let geometry = result["geometry"] as? String == "range" ? " range" : ""
+                    let geometry: String
+                    switch result["geometry"] as? String {
+                    case "block": geometry = " block"
+                    case "range": geometry = " range"
+                    default: geometry = ""
+                    }
                     self.onSelectSegment(id, "Tap \(mapping)\(geometry)")
                 } catch {
                     guard self.pageReady, self.lastChapterID == chapterID,
