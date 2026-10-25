@@ -37,6 +37,8 @@ struct ReaderView: View {
     @State private var pageTurnRequest = 0
     @State private var followsNarration = true
     @State private var followRequest = 0
+    @State private var tapDiagnostic: String?
+    @State private var tapDiagnosticRequest = 0
 
     init(title: String, bookID: String, chapters: [AudiobookChapter], initialChapterID: String?,
          api: AudiobookAPI, player: PlayerModel, onPlayChapter: @escaping (AudiobookChapter) -> Void,
@@ -158,18 +160,38 @@ struct ReaderView: View {
                     if pagePosition != next { pagePosition = next }
                 }, onManualPageTurn: {
                     followsNarration = false
-                }, onSelectSegment: { id in
-                    guard selectedChapterID == chapterID,
-                          let chapter = selectedChapter,
-                          let segment = chapter.segments.first(where: { $0.id == id }) else { return }
+                }, onSelectSegment: { id, source in
+                    guard selectedChapterID == chapterID, let chapter = selectedChapter else { return }
+                    guard let segment = chapter.segments.first(where: { $0.id == id }) else {
+                        showTapDiagnostic("\(source) | Marker \(id) | Not in chapter")
+                        return
+                    }
                     followsNarration = true
                     followRequest += 1
                     onPlaySegment(chapter, segment)
+                    showTapDiagnostic("\(source) | Marker \(id) | In chapter | Seek invoked")
+                }, onTapDiagnostic: { message in
+                    guard selectedChapterID == chapterID else { return }
+                    showTapDiagnostic(message)
                 }, onError: { message in
                     guard selectedChapterID == chapterID else { return }
                     loadState = .failed(chapterID: chapterID, message: message)
                 })
                     .id(chapterID)
+                    .overlay(alignment: .bottom) {
+                        if let tapDiagnostic {
+                            Text(tapDiagnostic)
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .multilineTextAlignment(.center)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 6))
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 14)
+                                .allowsHitTesting(false)
+                        }
+                    }
             case .failed(let chapterID, let message) where chapterID == selectedChapterID:
                 status(message: message, retry: true)
             default:
@@ -312,8 +334,20 @@ struct ReaderView: View {
         }
     }
 
+    private func showTapDiagnostic(_ message: String) {
+        tapDiagnosticRequest += 1
+        let request = tapDiagnosticRequest
+        tapDiagnostic = message
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            if tapDiagnosticRequest == request { tapDiagnostic = nil }
+        }
+    }
+
     private func loadChapter(_ chapterID: String) async {
         guard !chapterID.isEmpty else { return }
+        tapDiagnosticRequest += 1
+        tapDiagnostic = nil
         loadState = .loading
         pagePosition = nil
         do {
@@ -338,13 +372,15 @@ private struct ReaderWebView: UIViewRepresentable {
     let pageTurnRequest: Int
     let onPageChange: (Int, Int) -> Void
     let onManualPageTurn: () -> Void
-    let onSelectSegment: (String) -> Void
+    let onSelectSegment: (String, String) -> Void
+    let onTapDiagnostic: (String) -> Void
     let onError: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(initialPageTurnRequest: pageTurnRequest, initialFollowRequest: followRequest,
                     onPageChange: onPageChange, onManualPageTurn: onManualPageTurn,
-                    onSelectSegment: onSelectSegment, onError: onError)
+                    onSelectSegment: onSelectSegment, onTapDiagnostic: onTapDiagnostic,
+                    onError: onError)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -381,7 +417,8 @@ private struct ReaderWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
         private let onPageChange: (Int, Int) -> Void
         private let onManualPageTurn: () -> Void
-        private let onSelectSegment: (String) -> Void
+        private let onSelectSegment: (String, String) -> Void
+        private let onTapDiagnostic: (String) -> Void
         private let onError: (String) -> Void
         private var rulesReady = false
         private var lastChapterID: String?
@@ -395,6 +432,7 @@ private struct ReaderWebView: UIViewRepresentable {
         private var pageReady = false
         private var highlightRequest = 0
         private var tapRequest = 0
+        private var lastSelection: (id: String, time: TimeInterval)?
         private var linkToken = UUID().uuidString.lowercased()
         private var pendingFollowSegmentID: String?
         private var contentSizeObservation: NSKeyValueObservation?
@@ -402,13 +440,15 @@ private struct ReaderWebView: UIViewRepresentable {
 
         init(initialPageTurnRequest: Int, initialFollowRequest: Int,
              onPageChange: @escaping (Int, Int) -> Void, onManualPageTurn: @escaping () -> Void,
-             onSelectSegment: @escaping (String) -> Void,
+             onSelectSegment: @escaping (String, String) -> Void,
+             onTapDiagnostic: @escaping (String) -> Void,
              onError: @escaping (String) -> Void) {
             lastPageTurnRequest = initialPageTurnRequest
             lastFollowRequest = initialFollowRequest
             self.onPageChange = onPageChange
             self.onManualPageTurn = onManualPageTurn
             self.onSelectSegment = onSelectSegment
+            self.onTapDiagnostic = onTapDiagnostic
             self.onError = onError
         }
 
@@ -418,10 +458,17 @@ private struct ReaderWebView: UIViewRepresentable {
         }
 
         @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
-            guard recognizer.state == .ended, pageReady, let chapterID = lastChapterID,
-                  let webView else { return }
+            guard recognizer.state == .ended else { return }
+            onTapDiagnostic("Tap received")
+            guard pageReady, let chapterID = lastChapterID, let webView else {
+                onTapDiagnostic("Tap received | Page not ready")
+                return
+            }
             let point = recognizer.location(in: webView)
-            guard webView.bounds.contains(point), webView.bounds.width > 0, webView.bounds.height > 0 else { return }
+            guard webView.bounds.contains(point), webView.bounds.width > 0, webView.bounds.height > 0 else {
+                onTapDiagnostic("Tap received | Outside page bounds")
+                return
+            }
             tapRequest += 1
             let request = tapRequest
             let script = """
@@ -429,37 +476,78 @@ private struct ReaderWebView: UIViewRepresentable {
             const py = y * window.innerHeight / viewHeight;
             const markerSelector = 'span[id^="kaud-"]';
             const interactiveSelector = 'a, button, input, select, textarea, summary, label, [contenteditable], [role="button"], [role="link"], img, svg, video, audio, iframe, canvas, object, embed';
+            const generatedLinkSelector = 'a[href^="audiobook-reader://segment/"]';
             const contains = rect => rect.width > 0 && rect.height > 0 &&
                 px >= rect.left - 3 && px <= rect.right + 3 &&
                 py >= rect.top - 3 && py <= rect.bottom + 3;
             const overlaps = element => Array.from(element.getClientRects()).some(contains);
             const hit = document.elementFromPoint(px, py);
-            if (hit?.closest(interactiveSelector) ||
-                Array.from(document.querySelectorAll(interactiveSelector)).some(overlaps)) return null;
+            const interactive = hit?.closest(interactiveSelector);
+            if ((interactive && !interactive.matches(generatedLinkSelector)) ||
+                Array.from(document.querySelectorAll(interactiveSelector)).some(element =>
+                    !element.matches(generatedLinkSelector) && overlaps(element))) return { status: 'interactive' };
 
             const directMarker = hit?.closest(markerSelector);
-            if (directMarker && overlaps(directMarker)) return directMarker.id;
+            if (directMarker && overlaps(directMarker)) return { status: 'marker', id: directMarker.id };
             const caret = document.caretRangeFromPoint?.(px, py);
             const caretElement = caret?.startContainer.nodeType === Node.ELEMENT_NODE
                 ? caret.startContainer : caret?.startContainer.parentElement;
             const caretMarker = caretElement?.closest(markerSelector);
-            if (caretMarker && overlaps(caretMarker)) return caretMarker.id;
+            if (caretMarker && overlaps(caretMarker)) return { status: 'marker', id: caretMarker.id };
 
             const matches = Array.from(document.querySelectorAll(markerSelector)).filter(overlaps);
-            return matches.length === 1 ? matches[0].id : null;
+            return matches.length === 1
+                ? { status: 'marker', id: matches[0].id }
+                : { status: matches.length ? 'ambiguous' : 'no-marker' };
             """
             Task { @MainActor [weak self, weak webView] in
                 guard let webView else { return }
-                let value = try? await webView.callAsyncJavaScript(
-                    script, arguments: ["x": point.x, "y": point.y,
-                                        "viewWidth": webView.bounds.width, "viewHeight": webView.bounds.height],
-                    in: nil, contentWorld: .world(name: "audiobook-reader")
-                )
                 guard let self, self.pageReady, self.lastChapterID == chapterID,
-                      self.tapRequest == request, let id = value as? String,
-                      Self.isSegmentID(id) else { return }
-                self.onSelectSegment(id)
+                      self.tapRequest == request else { return }
+                do {
+                    let value = try await webView.callAsyncJavaScript(
+                        script, arguments: ["x": point.x, "y": point.y,
+                                            "viewWidth": webView.bounds.width, "viewHeight": webView.bounds.height],
+                        in: nil, contentWorld: .world(name: "audiobook-reader")
+                    )
+                    guard self.pageReady, self.lastChapterID == chapterID,
+                          self.tapRequest == request else { return }
+                    guard let result = value as? [String: Any], let status = result["status"] as? String else {
+                        self.onTapDiagnostic("Tap received | Invalid marker result")
+                        return
+                    }
+                    guard status == "marker" else {
+                        let detail: String
+                        switch status {
+                        case "interactive": detail = "Original link or media"
+                        case "ambiguous": detail = "Multiple markers at point"
+                        case "no-marker": detail = "No marker at point"
+                        default: detail = "Unexpected marker result"
+                        }
+                        self.onTapDiagnostic("Tap received | \(detail)")
+                        return
+                    }
+                    guard let id = result["id"] as? String, Self.isSegmentID(id) else {
+                        self.onTapDiagnostic("Tap received | Invalid marker ID")
+                        return
+                    }
+                    self.selectSegment(id, source: "Tap")
+                } catch {
+                    guard self.pageReady, self.lastChapterID == chapterID,
+                          self.tapRequest == request else { return }
+                    self.onTapDiagnostic("Tap received | Marker lookup failed")
+                }
             }
+        }
+
+        private func selectSegment(_ id: String, source: String) {
+            let now = Date.timeIntervalSinceReferenceDate
+            if let lastSelection, lastSelection.id == id, now - lastSelection.time < 0.4 {
+                onTapDiagnostic("\(source) | Marker \(id) | Seek already invoked")
+                return
+            }
+            lastSelection = (id, now)
+            onSelectSegment(id, source)
         }
 
         func prepare(_ webView: WKWebView) {
@@ -505,6 +593,7 @@ private struct ReaderWebView: UIViewRepresentable {
             pendingFollowSegmentID = nil
             highlightRequest += 1
             tapRequest += 1
+            lastSelection = nil
             linkToken = UUID().uuidString.lowercased()
             webView.loadHTMLString(Self.paginated(html), baseURL: nil)
         }
@@ -629,7 +718,7 @@ private struct ReaderWebView: UIViewRepresentable {
                 let parts = url.pathComponents
                 guard parts.count == 3, parts[1] == linkToken,
                       Self.isSegmentID(parts[2]), url.query == nil, url.fragment == nil else { return }
-                onSelectSegment(parts[2])
+                selectSegment(parts[2], source: "Link")
                 return
             }
             decisionHandler(url?.scheme == "about" ? .allow : .cancel)
