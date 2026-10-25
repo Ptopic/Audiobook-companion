@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import WebKit
 
 private enum ReaderLoadState {
@@ -350,17 +351,6 @@ private struct ReaderWebView: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        let contentWorld = WKContentWorld.world(name: "audiobook-reader")
-        configuration.userContentController.add(context.coordinator, contentWorld: contentWorld, name: "segmentTap")
-        configuration.userContentController.addUserScript(WKUserScript(source: """
-            document.addEventListener('click', event => {
-                const target = event.target;
-                if (!(target instanceof Element) ||
-                    target.closest('a, button, input, select, textarea, summary, label, [contenteditable]')) return;
-                const marker = target.closest('span[id^="kaud-"]');
-                if (marker) window.webkit.messageHandlers.segmentTap.postMessage(marker.id);
-            }, true);
-            """, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: contentWorld))
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.isOpaque = false
@@ -372,6 +362,10 @@ private struct ReaderWebView: UIViewRepresentable {
         webView.scrollView.showsHorizontalScrollIndicator = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.scrollView.delegate = context.coordinator
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        tap.cancelsTouchesInView = false
+        tap.delegate = context.coordinator
+        webView.scrollView.addGestureRecognizer(tap)
         context.coordinator.prepare(webView)
         return webView
     }
@@ -383,7 +377,7 @@ private struct ReaderWebView: UIViewRepresentable {
         context.coordinator.turnPage(ifRequested: pageTurnRequest, in: webView)
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, UIScrollViewDelegate, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKNavigationDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
         private let onPageChange: (Int, Int) -> Void
         private let onManualPageTurn: () -> Void
         private let onSelectSegment: (String) -> Void
@@ -399,8 +393,10 @@ private struct ReaderWebView: UIViewRepresentable {
         private var followsNarration = true
         private var pageReady = false
         private var highlightRequest = 0
+        private var tapRequest = 0
         private var pendingFollowSegmentID: String?
         private var contentSizeObservation: NSKeyValueObservation?
+        private weak var webView: WKWebView?
 
         init(initialPageTurnRequest: Int, initialFollowRequest: Int,
              onPageChange: @escaping (Int, Int) -> Void, onManualPageTurn: @escaping () -> Void,
@@ -414,13 +410,44 @@ private struct ReaderWebView: UIViewRepresentable {
             self.onError = onError
         }
 
-        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard pageReady, message.frameInfo.isMainFrame,
-                  let id = message.body as? String, Self.isSegmentID(id) else { return }
-            onSelectSegment(id)
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            true
+        }
+
+        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended, pageReady, let chapterID = lastChapterID,
+                  let webView else { return }
+            let point = recognizer.location(in: webView)
+            guard webView.bounds.contains(point), webView.bounds.width > 0, webView.bounds.height > 0 else { return }
+            tapRequest += 1
+            let request = tapRequest
+            let script = """
+            const hit = document.elementFromPoint(x * window.innerWidth / viewWidth,
+                                                   y * window.innerHeight / viewHeight);
+            if (!hit || hit.closest('a, button, input, select, textarea, summary, label, [contenteditable], [role="button"], [role="link"], img, svg, video, audio, iframe, canvas, object, embed')) return null;
+            const marker = hit.closest('span[id^="kaud-"]');
+            if (marker) return marker.id;
+            const block = hit.closest('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+            const markers = block ? block.querySelectorAll(':scope > span[id^="kaud-"]') : [];
+            return markers.length === 1 ? markers[0].id : null;
+            """
+            Task { @MainActor [weak self, weak webView] in
+                guard let webView else { return }
+                let value = try? await webView.callAsyncJavaScript(
+                    script, arguments: ["x": point.x, "y": point.y,
+                                        "viewWidth": webView.bounds.width, "viewHeight": webView.bounds.height],
+                    in: nil, contentWorld: .world(name: "audiobook-reader")
+                )
+                guard let self, self.pageReady, self.lastChapterID == chapterID,
+                      self.tapRequest == request, let id = value as? String,
+                      Self.isSegmentID(id) else { return }
+                self.onSelectSegment(id)
+            }
         }
 
         func prepare(_ webView: WKWebView) {
+            self.webView = webView
             contentSizeObservation = webView.scrollView.observe(\.contentSize, options: [.new]) { [weak self, weak webView] _, _ in
                 DispatchQueue.main.async {
                     guard let self, let webView else { return }
@@ -461,6 +488,7 @@ private struct ReaderWebView: UIViewRepresentable {
             displayedSegmentID = nil
             pendingFollowSegmentID = nil
             highlightRequest += 1
+            tapRequest += 1
             webView.loadHTMLString(Self.paginated(html), baseURL: nil)
         }
 
