@@ -487,23 +487,36 @@ private struct ReaderWebView: UIViewRepresentable {
                 documentX <= rect.right - bodyRect.left + tolerance &&
                 documentY >= rect.top - bodyRect.top - tolerance &&
                 documentY <= rect.bottom - bodyRect.top + tolerance;
-            const overlaps = (element, tolerance = 3) =>
+            const overlaps = (element, tolerance = 0) =>
                 Array.from(element.getClientRects()).some(rect => contains(rect, tolerance));
+            const textOverlaps = element => {
+                const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+                const range = document.createRange();
+                let node;
+                while ((node = walker.nextNode())) {
+                    if (!node.textContent.trim()) continue;
+                    range.selectNodeContents(node);
+                    if (Array.from(range.getClientRects()).some(rect => contains(rect, 0))) {
+                        return true;
+                    }
+                }
+                return false;
+            };
             const mapping = Math.abs(bodyRect.left) < 1 ? 'document' : 'viewport';
             const hit = document.elementFromPoint(px, py);
             let marker = null;
             const directMarker = hit?.closest(markerSelector);
-            if (directMarker && overlaps(directMarker)) marker = directMarker;
+            if (directMarker && textOverlaps(directMarker)) marker = directMarker;
             if (!marker) {
                 const caret = document.caretRangeFromPoint?.(px, py);
                 const caretElement = caret?.startContainer.nodeType === Node.ELEMENT_NODE
                     ? caret.startContainer : caret?.startContainer.parentElement;
                 const caretMarker = caretElement?.closest(markerSelector);
-                if (caretMarker && overlaps(caretMarker)) marker = caretMarker;
+                if (caretMarker && textOverlaps(caretMarker)) marker = caretMarker;
             }
             if (!marker) {
                 const matches = Array.from(document.querySelectorAll(markerSelector))
-                    .filter(element => overlaps(element));
+                    .filter(element => textOverlaps(element));
                 if (matches.length > 1) return { status: 'ambiguous', mapping };
                 marker = matches[0] ?? null;
             }
@@ -520,7 +533,7 @@ private struct ReaderWebView: UIViewRepresentable {
             if (interactive) return {
                 status: 'interactive', tag: interactive.tagName.toLowerCase(), mapping
             };
-            return marker ? { status: 'marker', id: marker.id, mapping }
+            return marker ? { status: 'marker', id: marker.id, mapping, geometry: 'range' }
                 : { status: 'no-marker', mapping };
             """
             Task { @MainActor [weak self, weak webView] in
@@ -560,7 +573,8 @@ private struct ReaderWebView: UIViewRepresentable {
                         self.onTapDiagnostic("Tap received | Invalid marker ID")
                         return
                     }
-                    self.onSelectSegment(id, "Tap \(mapping)")
+                    let geometry = result["geometry"] as? String == "range" ? " range" : ""
+                    self.onSelectSegment(id, "Tap \(mapping)\(geometry)")
                 } catch {
                     guard self.pageReady, self.lastChapterID == chapterID,
                           self.tapRequest == request else { return }
