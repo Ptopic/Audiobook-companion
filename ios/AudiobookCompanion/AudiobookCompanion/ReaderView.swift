@@ -483,9 +483,14 @@ private struct ReaderWebView: UIViewRepresentable {
             const overlaps = element => Array.from(element.getClientRects()).some(contains);
             const hit = document.elementFromPoint(px, py);
             const interactive = hit?.closest(interactiveSelector);
-            if ((interactive && !interactive.matches(generatedLinkSelector)) ||
-                Array.from(document.querySelectorAll(interactiveSelector)).some(element =>
-                    !element.matches(generatedLinkSelector) && overlaps(element))) return { status: 'interactive' };
+            const generatedMarker = interactive?.matches(generatedLinkSelector)
+                ? interactive.parentElement : null;
+            const generatedLink = generatedMarker?.matches(markerSelector) &&
+                interactive.getAttribute('href') ===
+                    'audiobook-reader://segment/' + token + '/' + generatedMarker.id;
+            if (interactive && !generatedLink) {
+                return { status: 'interactive', tag: interactive.tagName.toLowerCase() };
+            }
 
             const directMarker = hit?.closest(markerSelector);
             if (directMarker && overlaps(directMarker)) return { status: 'marker', id: directMarker.id };
@@ -507,7 +512,8 @@ private struct ReaderWebView: UIViewRepresentable {
                 do {
                     let value = try await webView.callAsyncJavaScript(
                         script, arguments: ["x": point.x, "y": point.y,
-                                            "viewWidth": webView.bounds.width, "viewHeight": webView.bounds.height],
+                                            "viewWidth": webView.bounds.width, "viewHeight": webView.bounds.height,
+                                            "token": self.linkToken],
                         in: nil, contentWorld: .world(name: "audiobook-reader")
                     )
                     guard self.pageReady, self.lastChapterID == chapterID,
@@ -519,7 +525,9 @@ private struct ReaderWebView: UIViewRepresentable {
                     guard status == "marker" else {
                         let detail: String
                         switch status {
-                        case "interactive": detail = "Original link or media"
+                        case "interactive":
+                            let tag = (result["tag"] as? String).flatMap { $0.count <= 32 ? $0 : nil } ?? "element"
+                            detail = "Original <\(tag)> tapped"
                         case "ambiguous": detail = "Multiple markers at point"
                         case "no-marker": detail = "No marker at point"
                         default: detail = "Unexpected marker result"
