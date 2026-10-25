@@ -432,8 +432,6 @@ private struct ReaderWebView: UIViewRepresentable {
         private var pageReady = false
         private var highlightRequest = 0
         private var tapRequest = 0
-        private var lastSelection: (id: String, time: TimeInterval)?
-        private var linkToken = UUID().uuidString.lowercased()
         private var pendingFollowSegmentID: String?
         private var contentSizeObservation: NSKeyValueObservation?
         private weak var webView: WKWebView?
@@ -475,24 +473,14 @@ private struct ReaderWebView: UIViewRepresentable {
             const px = x * window.innerWidth / viewWidth;
             const py = y * window.innerHeight / viewHeight;
             const markerSelector = 'span[id^="kaud-"]';
-            const interactiveSelector = 'a, button, input, select, textarea, summary, label, [contenteditable], [role="button"], [role="link"], img, svg, video, audio, iframe, canvas, object, embed';
+            const interactiveSelector = 'a[href], button, input, select, textarea, summary, label, [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], img, svg, canvas, video, audio, iframe, object, embed';
             const contains = rect => rect.width > 0 && rect.height > 0 &&
                 px >= rect.left - 3 && px <= rect.right + 3 &&
                 py >= rect.top - 3 && py <= rect.bottom + 3;
             const overlaps = element => Array.from(element.getClientRects()).some(contains);
             const hit = document.elementFromPoint(px, py);
             const interactive = hit?.closest(interactiveSelector);
-            const isAnchor = interactive?.tagName === 'A';
-            const generatedLink = isAnchor &&
-                globalThis.__audiobookReaderGeneratedLinks?.has(interactive) === true;
-            const generatedMarker = generatedLink ? interactive.parentElement : null;
-            if (interactive && (!generatedMarker?.matches(markerSelector) ||
-                !/^kaud-\\d+$/.test(generatedMarker.id))) {
-                const kind = generatedLink ? 'generated-invalid-marker' :
-                    isAnchor && interactive.getAttribute('href')?.startsWith('audiobook-reader://segment/')
-                        ? 'generated-unregistered' : isAnchor ? 'authored-anchor' : 'other';
-                return { status: 'interactive', tag: interactive.tagName.toLowerCase(), kind };
-            }
+            if (interactive) return { status: 'interactive', tag: interactive.tagName.toLowerCase() };
 
             const directMarker = hit?.closest(markerSelector);
             if (directMarker && overlaps(directMarker)) return { status: 'marker', id: directMarker.id };
@@ -527,14 +515,8 @@ private struct ReaderWebView: UIViewRepresentable {
                         let detail: String
                         switch status {
                         case "interactive":
-                            switch result["kind"] as? String {
-                            case "authored-anchor": detail = "Authored <a> tapped"
-                            case "generated-unregistered": detail = "Generated <a> not registered"
-                            case "generated-invalid-marker": detail = "Generated <a> has invalid marker"
-                            default:
-                                let tag = (result["tag"] as? String).flatMap { $0.count <= 32 ? $0 : nil } ?? "element"
-                                detail = "Interactive <\(tag)> tapped"
-                            }
+                            let tag = (result["tag"] as? String).flatMap { $0.count <= 32 ? $0 : nil } ?? "element"
+                            detail = "Interactive <\(tag)> tapped"
                         case "ambiguous": detail = "Multiple markers at point"
                         case "no-marker": detail = "No marker at point"
                         default: detail = "Unexpected marker result"
@@ -546,23 +528,13 @@ private struct ReaderWebView: UIViewRepresentable {
                         self.onTapDiagnostic("Tap received | Invalid marker ID")
                         return
                     }
-                    self.selectSegment(id, source: "Tap")
+                    self.onSelectSegment(id, "Tap")
                 } catch {
                     guard self.pageReady, self.lastChapterID == chapterID,
                           self.tapRequest == request else { return }
                     self.onTapDiagnostic("Tap received | Marker lookup failed")
                 }
             }
-        }
-
-        private func selectSegment(_ id: String, source: String) {
-            let now = Date.timeIntervalSinceReferenceDate
-            if let lastSelection, lastSelection.id == id, now - lastSelection.time < 0.4 {
-                onTapDiagnostic("\(source) | Marker \(id) | Seek already invoked")
-                return
-            }
-            lastSelection = (id, now)
-            onSelectSegment(id, source)
         }
 
         func prepare(_ webView: WKWebView) {
@@ -608,8 +580,6 @@ private struct ReaderWebView: UIViewRepresentable {
             pendingFollowSegmentID = nil
             highlightRequest += 1
             tapRequest += 1
-            lastSelection = nil
-            linkToken = UUID().uuidString.lowercased()
             webView.loadHTMLString(Self.paginated(html), baseURL: nil)
         }
 
@@ -725,62 +695,14 @@ private struct ReaderWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            let url = navigationAction.request.url
-            if url?.scheme == "audiobook-reader" {
-                defer { decisionHandler(.cancel) }
-                guard pageReady, let url, url.host() == "segment",
-                      navigationAction.targetFrame?.isMainFrame != false else { return }
-                let parts = url.pathComponents
-                guard parts.count == 3, parts[1] == linkToken,
-                      Self.isSegmentID(parts[2]), url.query == nil, url.fragment == nil else { return }
-                selectSegment(parts[2], source: "Link")
-                return
-            }
-            decisionHandler(url?.scheme == "about" ? .allow : .cancel)
+            decisionHandler(navigationAction.request.url?.scheme == "about" ? .allow : .cancel)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            guard let chapterID = lastChapterID else { return }
-            let token = linkToken
-            let script = """
-            const excluded = 'a, button, input, select, textarea, summary, label, [contenteditable], [role="button"], [role="link"], img, svg, video, audio, iframe, canvas, object, embed, p, div, ul, ol, li, table, blockquote';
-            // This set lives in the isolated content world and tracks only links created below.
-            const generatedLinks = globalThis.__audiobookReaderGeneratedLinks ?? new WeakSet();
-            globalThis.__audiobookReaderGeneratedLinks = generatedLinks;
-            for (const marker of document.querySelectorAll('span[id^="kaud-"]')) {
-                if (!/^kaud-\\d+$/.test(marker.id) || marker.closest('a') || marker.querySelector(excluded)) continue;
-                const link = document.createElement('a');
-                link.href = 'audiobook-reader://segment/' + token + '/' + marker.id;
-                link.style.setProperty('display', 'inline', 'important');
-                link.style.setProperty('color', 'inherit', 'important');
-                link.style.setProperty('font', 'inherit', 'important');
-                link.style.setProperty('letter-spacing', 'inherit', 'important');
-                link.style.setProperty('text-decoration', 'none', 'important');
-                link.style.setProperty('background-color', 'transparent', 'important');
-                link.style.setProperty('margin', '0', 'important');
-                link.style.setProperty('padding', '0', 'important');
-                link.style.setProperty('border', '0', 'important');
-                link.style.setProperty('white-space', 'inherit', 'important');
-                link.style.setProperty('user-select', 'text', 'important');
-                link.style.setProperty('-webkit-user-select', 'text', 'important');
-                link.style.setProperty('-webkit-touch-callout', 'none', 'important');
-                while (marker.firstChild) link.appendChild(marker.firstChild);
-                marker.appendChild(link);
-                generatedLinks.add(link);
-            }
-            return true;
-            """
-            Task { @MainActor [weak self, weak webView] in
-                guard let webView else { return }
-                _ = try? await webView.callAsyncJavaScript(
-                    script, arguments: ["token": token], in: nil,
-                    contentWorld: .world(name: "audiobook-reader")
-                )
-                guard let self, self.lastChapterID == chapterID, self.linkToken == token else { return }
-                self.pageReady = true
-                self.applyHighlight(in: webView, shouldFollow: self.followsNarration)
-                self.reportPage(in: webView.scrollView)
-            }
+            guard lastChapterID != nil else { return }
+            pageReady = true
+            applyHighlight(in: webView, shouldFollow: followsNarration)
+            reportPage(in: webView.scrollView)
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
