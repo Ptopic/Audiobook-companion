@@ -15,6 +15,15 @@ python -m backend
 
 Open <http://127.0.0.1:8765>.
 
+## Tests
+
+With the Python environment above active:
+
+```bash
+pip install -r requirements-test.txt
+python -m pytest tests -q
+```
+
 ## Recommended Architecture
 
 - Generate audiobooks on the FastAPI backend.

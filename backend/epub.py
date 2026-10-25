@@ -35,6 +35,7 @@ READER_FONT_TYPES = {".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font
 READER_TAGS = {
     "article", "aside", "b", "bdi", "bdo", "blockquote", "br", "caption", "cite", "code", "dd", "del", "dfn", "div", "dl", "dt", "em", "figcaption", "figure", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "ins", "kbd", "li", "main", "mark", "ol", "p", "pre", "q", "rb", "rp", "rt", "rtc", "ruby", "s", "samp", "section", "small", "span", "strong", "sub", "sup", "table", "tbody", "td", "tfoot", "th", "thead", "time", "tr", "u", "ul", "var", "wbr", "a",
 }
+READER_VOID_TAGS = {"br", "hr", "img", "wbr"}
 READER_DROP_TAGS = {"script", "iframe", "frame", "frameset", "object", "embed", "form", "input", "button", "textarea", "select", "option", "svg", "math", "video", "audio", "source", "track", "canvas", "meta", "base", "link", "style", "noscript", "template", "nav"}
 READER_ATTRS = {"class", "id", "title", "lang", "dir", "role", "abbr", "colspan", "rowspan", "datetime", "cite", "alt", "width", "height"}
 READER_CSP = "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'"
@@ -449,6 +450,8 @@ def render_reader_chapter(book: Book, chapter: Chapter) -> str:
             if name not in READER_TAGS:
                 tag.unwrap()
                 continue
+            # XHTML's XML parser permits self-closing tags that are not void in HTML.
+            tag.can_be_empty_element = name in READER_VOID_TAGS
             for attr, value in list(tag.attrs.items()):
                 key = attr.lower()
                 if key == "style":

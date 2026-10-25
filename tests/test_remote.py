@@ -210,7 +210,7 @@ def test_reader_uses_original_markup_and_local_assets(remote):
     with zipfile.ZipFile(epub, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("META-INF/container.xml", '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>')
         zf.writestr("OEBPS/content.opf", '''<package xmlns="http://www.idpf.org/2007/opf"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Reader Book</dc:title></metadata><manifest><item id="second" href="second.xhtml" media-type="application/xhtml+xml"/><item id="first" href="first.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="first"/><itemref idref="second"/></spine></package>''')
-        zf.writestr("OEBPS/first.xhtml", '''<html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" href="styles/book.css"/></head><body><h1>First</h1><p class="lead">An <em>authentic</em> paragraph <img src="images/cover%20art.png" alt="Cover"/></p><p><a href="#note">Read note</a> <a href="https://evil.example/">external</a></p><aside id="note">A note.</aside><script>bad()</script><iframe src="https://evil.example/"></iframe><img src="https://evil.example/tracker.png"/><p onclick="bad()" style="color:green;background-image:url(https://evil.example/a.png)">Safe text</p></body></html>''')
+        zf.writestr("OEBPS/first.xhtml", '''<html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" href="styles/book.css"/></head><body><h1>First</h1><p class="lead"><a id="page_1"/>An <em>authentic</em> paragraph <br/><img src="images/cover%20art.png" alt="Cover"/></p><p><a id="page_2"/><a href="#note">Read note</a> <a href="https://evil.example/">external</a></p><aside id="note">A note.</aside><script>bad()</script><iframe src="https://evil.example/"></iframe><img src="https://evil.example/tracker.png"/><p onclick="bad()" style="color:green;background-image:url(https://evil.example/a.png)"><a id="page_3"/>Safe text</p></body></html>''')
         zf.writestr("OEBPS/second.xhtml", '<html><body><h2>Second</h2><p>Last chapter.</p></body></html>')
         zf.writestr("OEBPS/styles/book.css", '''@import url("https://evil.example/import.css");@font-face{font-family:BookFont;src:url("../fonts/book.woff") format("woff")}body{font-family:BookFont,serif}p.lead{color:#334455;background-image:url("../images/cover%20art.png")}p{background-image:url("https://evil.example/tracker.png")}''')
         zf.writestr("OEBPS/images/cover art.png", image)
@@ -232,9 +232,12 @@ def test_reader_uses_original_markup_and_local_assets(remote):
     assert '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'' in response.text
     assert 'id="kaud-0001"' in response.text
     assert 'id="kaud-0002"' in response.text
-    reader = BeautifulSoup(response.text, "html.parser")
+    reader = BeautifulSoup(response.text, "html5lib")
     audio_chunks = parse_epub(epub).chapters[0].chunks
     assert [" ".join(reader.find(id=chunk.id).get_text(" ", strip=True).split()) for chunk in audio_chunks] == [chunk.text for chunk in audio_chunks]
+    assert [reader.find(id=f"page_{index}").name for index in range(1, 4)] == ["a"] * 3
+    assert reader.find(id="kaud-0002").find("br") is not None
+    assert reader.find(id="kaud-0002").find("img", alt="Cover") is not None
     assert '<em>authentic</em>' in response.text
     assert '<aside id="note">A note.</aside>' in response.text
     assert f'data:image/png;base64,{base64.b64encode(image).decode()}' in response.text
