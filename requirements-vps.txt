@@ -2,5 +2,6 @@ fastapi==0.142.2
 uvicorn[standard]==0.32.1
 python-multipart==0.0.20
 beautifulsoup4==4.12.3
+tinycss2==1.5.1
 lxml>=6.0.0,<7
 boto3==1.35.87

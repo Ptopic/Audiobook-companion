@@ -131,6 +131,30 @@ struct AudiobookAPI {
         return try remoteDecode(RemoteJob.self, data: data, response: response)
     }
 
+    func readerHTML(bookID: String, chapterID: String) async throws -> String {
+        guard !bookID.isEmpty, !chapterID.isEmpty else { throw RemoteAPIError.invalidResponse }
+        let url = baseURL.appending(path: "api/remote/books")
+            .appending(path: bookID)
+            .appending(path: "reader")
+            .appending(path: chapterID)
+        guard let token = RemoteTokenStore.load(), !token.isEmpty else { throw RemoteAPIError.missingToken }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("text/html", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 30
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw RemoteAPIError.invalidResponse }
+        if http.statusCode == 404 {
+            throw RemoteAPIError.server("Original EPUB chapter is unavailable on this server.")
+        }
+        try validateRemoteResponse(data: data, response: response)
+        guard http.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("text/html") == true,
+              let html = String(data: data, encoding: .utf8), !html.isEmpty else {
+            throw RemoteAPIError.invalidResponse
+        }
+        return html
+    }
+
     func retryRemoteJob(id: String) async throws {
         let request = try remoteRequest(path: "api/remote/jobs/\(id)/retry", method: "POST")
         let (data, response) = try await URLSession.shared.data(for: request)

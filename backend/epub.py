@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import html
+import base64
 import posixpath
 import re
 import uuid
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 from xml.etree import ElementTree as ET
 
 from bs4 import BeautifulSoup, NavigableString, Tag
+import tinycss2
 
 NS = {
     "container": "urn:oasis:names:tc:opendocument:xmlns:container",
@@ -21,6 +24,20 @@ NCX_NS = "http://www.daisy.org/z3986/2005/ncx/"
 
 class EpubError(ValueError):
     pass
+
+
+MAX_READER_CHAPTER = 2 * 1024 * 1024
+MAX_READER_ASSET = 2 * 1024 * 1024
+MAX_READER_HTML = 8 * 1024 * 1024
+MAX_READER_CSS = 512 * 1024
+READER_IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+READER_FONT_TYPES = {".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font/ttf", ".otf": "font/otf"}
+READER_TAGS = {
+    "article", "aside", "b", "bdi", "bdo", "blockquote", "br", "caption", "cite", "code", "dd", "del", "dfn", "div", "dl", "dt", "em", "figcaption", "figure", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "ins", "kbd", "li", "main", "mark", "ol", "p", "pre", "q", "rb", "rp", "rt", "rtc", "ruby", "s", "samp", "section", "small", "span", "strong", "sub", "sup", "table", "tbody", "td", "tfoot", "th", "thead", "time", "tr", "u", "ul", "var", "wbr", "a",
+}
+READER_DROP_TAGS = {"script", "iframe", "frame", "frameset", "object", "embed", "form", "input", "button", "textarea", "select", "option", "svg", "math", "video", "audio", "source", "track", "canvas", "meta", "base", "link", "style", "noscript", "template", "nav"}
+READER_ATTRS = {"class", "id", "title", "lang", "dir", "role", "abbr", "colspan", "rowspan", "datetime", "cite", "alt", "width", "height"}
+READER_CSP = "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'"
 
 
 @dataclass
@@ -267,6 +284,219 @@ def wrap_chapter_xhtml(original: bytes, chunks: list[Chunk]) -> bytes:
             span.append(child.extract())
         tag.append(span)
     return str(soup).encode("utf-8")
+
+
+class _ReaderAssets:
+    def __init__(self, zf: zipfile.ZipFile):
+        self.zf = zf
+        self.names = set(zf.namelist())
+        self.used = 0
+
+    def member(self, base: str, href: str) -> str | None:
+        href = html.unescape(href.strip())
+        try:
+            parts = urlsplit(href)
+        except ValueError:
+            return None
+        if parts.scheme or parts.netloc or parts.query or not parts.path:
+            return None
+        path = unquote(parts.path)
+        if path.startswith("/") or "\\" in path or "\x00" in path:
+            return None
+        member = posixpath.normpath(posixpath.join(posixpath.dirname(base), path))
+        try:
+            safe_extract_member(member)
+        except EpubError:
+            return None
+        return member if member in self.names else None
+
+    def read(self, member: str, limit: int) -> bytes | None:
+        info = self.zf.getinfo(member)
+        if info.file_size > limit or self.used + info.file_size > MAX_READER_HTML:
+            return None
+        with self.zf.open(info) as source:
+            data = source.read(limit + 1)
+        if len(data) > limit:
+            return None
+        self.used += len(data)
+        return data
+
+    def data_url(self, base: str, href: str, types: dict[str, str]) -> str | None:
+        member = self.member(base, href)
+        if member is None:
+            return None
+        mime = types.get(posixpath.splitext(member)[1].lower())
+        if not mime:
+            return None
+        data = self.read(member, MAX_READER_ASSET)
+        if data is None:
+            return None
+        return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+
+
+def _css_value(tokens: list, assets: _ReaderAssets, base: str, types: dict[str, str]) -> str | None:
+    result = []
+    for token in tokens:
+        if token.type == "url":
+            url = token.value
+        elif token.type == "function" and token.lower_name == "url":
+            values = [part for part in token.arguments if part.type not in {"whitespace", "comment"}]
+            if len(values) != 1 or values[0].type not in {"string", "url"}:
+                return None
+            url = values[0].value
+        else:
+            if token.type == "function":
+                if token.lower_name in {"image-set", "-webkit-image-set", "paint"}:
+                    return None
+                nested = _css_value(token.arguments, assets, base, types)
+                if nested is None:
+                    return None
+                result.append(f"{token.name}({nested})")
+            else:
+                result.append(token.serialize())
+            continue
+        data_url = assets.data_url(base, url, types)
+        if data_url is None:
+            return None
+        result.append(f'url("{data_url}")')
+    return "".join(result)
+
+
+def _css_declarations(source: str | list, assets: _ReaderAssets, base: str) -> str:
+    declarations = tinycss2.parse_declaration_list(source, skip_comments=True, skip_whitespace=True)
+    result = []
+    for declaration in declarations:
+        if declaration.type != "declaration":
+            continue
+        name = declaration.lower_name
+        if name in {"behavior", "-moz-binding", "position", "z-index", "animation", "animation-name", "transition", "content"} or name.startswith("--"):
+            continue
+        value = _css_value(declaration.value, assets, base, {**READER_IMAGE_TYPES, **READER_FONT_TYPES})
+        if value is None or re.search(r"(?i)\b(?:expression|javascript)\s*\(", value):
+            continue
+        result.append(f"{declaration.name}:{value}{'!important' if declaration.important else ''};")
+    return "".join(result)
+
+
+def _css_rules(source: str | list, assets: _ReaderAssets, base: str) -> str:
+    rules = tinycss2.parse_stylesheet(source, skip_comments=True, skip_whitespace=True) if isinstance(source, str) else source
+    result = []
+    for rule in rules:
+        if rule.type == "qualified-rule":
+            selector = tinycss2.serialize(rule.prelude).strip()
+            if not selector or len(selector) > 1000:
+                continue
+            declarations = _css_declarations(rule.content, assets, base)
+            if declarations:
+                result.append(f"{selector.replace('<', '\\3c ')}{{{declarations}}}")
+        elif rule.type == "at-rule" and rule.lower_at_keyword == "font-face" and rule.content is not None:
+            declarations = _css_declarations(rule.content, assets, base)
+            if declarations:
+                result.append(f"@font-face{{{declarations}}}")
+        elif rule.type == "at-rule" and rule.lower_at_keyword in {"media", "supports"} and rule.content is not None:
+            condition = tinycss2.serialize(rule.prelude).strip()
+            if len(condition) < 500 and "url" not in condition.lower():
+                nested = _css_rules(tinycss2.parse_rule_list(rule.content, skip_comments=True, skip_whitespace=True), assets, base)
+                if nested:
+                    result.append(f"@{rule.lower_at_keyword} {condition}{{{nested}}}")
+    return "".join(result)
+
+
+def render_reader_chapter(book: Book, chapter: Chapter) -> str:
+    """Render one original spine document as isolated, self-contained reader HTML."""
+    with zipfile.ZipFile(book.source_path) as zf:
+        assets = _ReaderAssets(zf)
+        member = assets.member(book.rootfile, chapter.href)
+        if member is None:
+            raise EpubError("Chapter source is missing")
+        original = assets.read(member, MAX_READER_CHAPTER)
+        if original is None:
+            raise EpubError("Chapter is too large for the reader")
+        soup = BeautifulSoup(original, "xml")
+        styles = []
+        for link in soup.find_all("link", href=True):
+            if "stylesheet" not in link.get("rel", []) and link.get("type") != "text/css":
+                continue
+            css_member = assets.member(member, link["href"])
+            if css_member and css_member.lower().endswith(".css"):
+                css_data = assets.read(css_member, MAX_READER_CSS)
+                if css_data is not None:
+                    styles.append(_css_rules(css_data.decode("utf-8", "replace"), assets, css_member))
+        for style in soup.find_all("style"):
+            if style.string and len(style.string) <= MAX_READER_CSS:
+                styles.append(_css_rules(str(style.string), assets, member))
+
+        body = soup.find("body") or soup
+        blocks = [
+            tag for tag in body.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "blockquote"], recursive=True)
+            if not tag.find_parent(["script", "style", "nav"]) and " ".join(tag.get_text(" ", strip=True).split())
+        ]
+        for tag in body.find_all(id=re.compile(r"^kaud-\d+$")):
+            del tag["id"]
+        for tag, chunk in zip(blocks, chapter.chunks):
+            marker = soup.new_tag("span", id=chunk.id)
+            for child in list(tag.contents):
+                marker.append(child.extract())
+            tag.append(marker)
+
+        for tag in list(body.find_all(True)):
+            if tag.name is None:
+                continue
+            name = tag.name.lower()
+            if name in READER_DROP_TAGS:
+                tag.decompose()
+                continue
+            if name not in READER_TAGS:
+                tag.unwrap()
+                continue
+            for attr, value in list(tag.attrs.items()):
+                key = attr.lower()
+                if key == "style":
+                    cleaned = _css_declarations(value, assets, member)
+                    if cleaned:
+                        tag[attr] = cleaned
+                    else:
+                        del tag[attr]
+                elif key == "src" and name == "img":
+                    data_url = assets.data_url(member, str(value), READER_IMAGE_TYPES)
+                    if data_url:
+                        tag[attr] = data_url
+                    else:
+                        tag.decompose()
+                        break
+                elif key == "href" and name == "a":
+                    try:
+                        parts = urlsplit(str(value))
+                    except ValueError:
+                        del tag[attr]
+                        continue
+                    target = assets.member(member, parts.path) if parts.path else member
+                    if not parts.scheme and not parts.netloc and not parts.query and parts.fragment and target == member:
+                        tag[attr] = "#" + unquote(parts.fragment)
+                    else:
+                        del tag[attr]
+                elif key not in READER_ATTRS:
+                    del tag[attr]
+            if tag.name == "img":
+                tag.attrs.pop("srcset", None)
+        markup = "".join(str(child) for child in body.contents)
+        title = html.escape(chapter.title)
+        css = "".join(styles).replace("<", "\\3c ")
+        document = (
+            '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            f'<meta http-equiv="Content-Security-Policy" content="{READER_CSP}">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            f"<title>{title}</title><style>"
+            "html{background:#fff;color:#202020}body{box-sizing:border-box;max-width:46rem;margin:0 auto;padding:1.25rem 1.5rem 4rem;font-family:Georgia,serif;font-size:1.08rem;line-height:1.65;overflow-wrap:break-word}"
+            "img{max-width:100%!important;height:auto!important}table{max-width:100%;display:block;overflow-x:auto}"
+            f"{css}"
+            "html,body{background:#fff!important;color:#202020!important}body{max-width:46rem!important;margin:0 auto!important;padding:1.25rem 1.5rem 4rem!important}"
+            "</style></head><body>"
+            f"{markup}</body></html>"
+        )
+        if len(document.encode("utf-8")) > MAX_READER_HTML:
+            raise EpubError("Chapter is too large for the reader")
+        return document
 
 
 def make_smil(chapter_href: str, audio_href: str, timings: list[dict]) -> bytes:

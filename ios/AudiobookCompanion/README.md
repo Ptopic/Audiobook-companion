@@ -76,6 +76,8 @@ PROVISIONING_PROFILE_NAME="Audiobook Companion Ad Hoc" ./scripts/build-and-publi
 - Deletes a generated audiobook from the player's top-right menu after confirmation; server storage and the Library entry are removed, while the uploaded source EPUB remains available for regeneration.
 - Displays current segment text.
 - Lets you tap a segment to seek and start playback there.
+- Opens the original EPUB chapter from the player’s Read control, preserving the source HTML, images, and embedded styles while audio plays. The reader has measured in-chapter pages, page-turn controls, and a table of contents for chapter navigation; its play button starts or pauses audio for the displayed chapter. The Transcript tab remains available for segment seeking.
+- Reader chapters require the authenticated `/api/remote/books/{book_id}/reader/{chapter_id}` endpoint and the remote token in Settings. If the endpoint is unavailable, the reader shows a retryable error without affecting audio playback.
 - Enables iOS background audio mode.
 - Publishes book, chapter, author, cover, elapsed time, and playback rate to iOS Now Playing.
 - Accepts system and headset play/pause, 15-second skip, and position seeking commands. Headset next/previous track commands also move 15 seconds.

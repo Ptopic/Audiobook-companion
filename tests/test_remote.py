@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import sqlite3
 import time
 import zipfile
@@ -7,9 +8,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 from fastapi.testclient import TestClient
 
 from backend import jobs
+from backend.epub import parse_epub
 from backend.main import app
 from tests.fixtures import make_epub
 
@@ -197,3 +200,54 @@ def test_bad_epub_is_rejected(remote):
     with malformed.open("rb") as fh:
         response = client.post("/api/remote/books", files={"file": ("malformed.epub", fh, "application/epub+zip")}, headers=headers)
     assert response.status_code == 400
+
+
+def test_reader_uses_original_markup_and_local_assets(remote):
+    client, headers, tmp_path = remote
+    epub = tmp_path / "reader.epub"
+    image = b"\x89PNG\r\n\x1a\nreader-image"
+    font = b"wOFFreader-font"
+    with zipfile.ZipFile(epub, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("META-INF/container.xml", '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>')
+        zf.writestr("OEBPS/content.opf", '''<package xmlns="http://www.idpf.org/2007/opf"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Reader Book</dc:title></metadata><manifest><item id="second" href="second.xhtml" media-type="application/xhtml+xml"/><item id="first" href="first.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="first"/><itemref idref="second"/></spine></package>''')
+        zf.writestr("OEBPS/first.xhtml", '''<html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" href="styles/book.css"/></head><body><h1>First</h1><p class="lead">An <em>authentic</em> paragraph <img src="images/cover%20art.png" alt="Cover"/></p><p><a href="#note">Read note</a> <a href="https://evil.example/">external</a></p><aside id="note">A note.</aside><script>bad()</script><iframe src="https://evil.example/"></iframe><img src="https://evil.example/tracker.png"/><p onclick="bad()" style="color:green;background-image:url(https://evil.example/a.png)">Safe text</p></body></html>''')
+        zf.writestr("OEBPS/second.xhtml", '<html><body><h2>Second</h2><p>Last chapter.</p></body></html>')
+        zf.writestr("OEBPS/styles/book.css", '''@import url("https://evil.example/import.css");@font-face{font-family:BookFont;src:url("../fonts/book.woff") format("woff")}body{font-family:BookFont,serif}p.lead{color:#334455;background-image:url("../images/cover%20art.png")}p{background-image:url("https://evil.example/tracker.png")}''')
+        zf.writestr("OEBPS/images/cover art.png", image)
+        zf.writestr("OEBPS/fonts/book.woff", font)
+    original_bytes = epub.read_bytes()
+    with epub.open("rb") as fh:
+        uploaded = client.post("/api/remote/books", files={"file": ("reader.epub", fh, "application/epub+zip")}, headers=headers)
+    assert uploaded.status_code == 200, uploaded.text
+    book = uploaded.json()
+    assert [c["id"] for c in book["chapters"]] == ["first", "second"]
+    url = f"/api/remote/books/{book['id']}/reader/first"
+    assert client.get(url).status_code == 401
+    assert client.get(url, headers={"Authorization": "Bearer wrong"}).status_code == 401
+    response = client.get(url, headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("text/html")
+    assert "default-src 'none'" in response.headers["content-security-policy"]
+    assert "navigate-to" not in response.headers["content-security-policy"]
+    assert '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'' in response.text
+    assert 'id="kaud-0001"' in response.text
+    assert 'id="kaud-0002"' in response.text
+    reader = BeautifulSoup(response.text, "html.parser")
+    audio_chunks = parse_epub(epub).chapters[0].chunks
+    assert [" ".join(reader.find(id=chunk.id).get_text(" ", strip=True).split()) for chunk in audio_chunks] == [chunk.text for chunk in audio_chunks]
+    assert '<em>authentic</em>' in response.text
+    assert '<aside id="note">A note.</aside>' in response.text
+    assert f'data:image/png;base64,{base64.b64encode(image).decode()}' in response.text
+    assert f'data:font/woff;base64,{base64.b64encode(font).decode()}' in response.text
+    assert "font-family:BookFont" in response.text
+    assert "color:#334455" in response.text
+    assert 'href="#note"' in response.text
+    assert reader.find("a", href="#note") is not None
+    assert reader.find(id="note") is not None
+    assert "evil.example" not in response.text
+    assert "onclick" not in response.text
+    assert "<script" not in response.text and "<iframe" not in response.text
+    assert "srcset=" not in response.text
+    assert client.get(f"/api/remote/books/{book['id']}/reader/second", headers=headers).status_code == 200
+    assert client.get(f"/api/remote/books/{book['id']}/reader/missing", headers=headers).status_code == 404
+    assert epub.read_bytes() == original_bytes

@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from . import jobs
-from .epub import EpubError, parse_epub, safe_extract_member
+from .epub import EpubError, READER_CSP, parse_epub, render_reader_chapter, safe_extract_member
 
 MAX_UPLOAD = 75 * 1024 * 1024
 MAX_EXPANDED = 250 * 1024 * 1024
@@ -206,6 +206,37 @@ def create_job(book_id: str, req: QueueRequest) -> dict:
             (job_id, book_id, "queued", json.dumps(config), 0.0, "Queued", None, None, None, now, now),
         )
     return {"job_id": job_id}
+
+
+@router.get("/books/{book_id}/reader/{chapter_id}")
+def reader_chapter(book_id: str, chapter_id: str) -> Response:
+    with _db() as db:
+        row = _book(db, book_id)
+        if chapter_id not in {chapter["id"] for chapter in json.loads(row["chapters"])}:
+            raise HTTPException(404, "Chapter not found")
+        source = Path(row["path"])
+    if not source.is_file():
+        raise HTTPException(404, "EPUB not found")
+    try:
+        book = parse_epub(source, book_id)
+        chapter = next((item for item in book.chapters if item.id == chapter_id), None)
+        if chapter is None:
+            raise HTTPException(404, "Chapter not found")
+        document = render_reader_chapter(book, chapter)
+    except EpubError as exc:
+        raise HTTPException(413 if "too large" in str(exc) else 422, str(exc)) from exc
+    except (KeyError, ValueError, ParseError, zipfile.BadZipFile, OSError) as exc:
+        raise HTTPException(422, "EPUB source could not be read") from exc
+    return Response(
+        content=document,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Security-Policy": READER_CSP,
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        },
+    )
 
 
 @router.get("/jobs")

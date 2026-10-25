@@ -45,6 +45,7 @@ struct BookDetailView: View {
     @State private var deleteError: String?
     @State private var isDeleteErrorPresented = false
     @State private var seekBarBounds: CGRect = .null
+    @State private var isReaderPresented = false
 
     var body: some View {
         ZStack {
@@ -101,6 +102,7 @@ struct BookDetailView: View {
                                     play(chapter: chapter, segment: segment)
                                 }
                             },
+                            onOpenReader: { isReaderPresented = true },
                             onPanelSwipe: handlePlayerSwipe
                         )
                     }
@@ -141,6 +143,19 @@ struct BookDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(deleteError ?? "Please try again.")
+        }
+        .fullScreenCover(isPresented: $isReaderPresented) {
+            if let manifest {
+                ReaderView(
+                    title: manifest.title,
+                    bookID: summary.bookID,
+                    chapters: manifest.chapters,
+                    initialChapterID: activeOrFirstChapter(in: manifest)?.id,
+                    api: api,
+                    player: player,
+                    onPlayChapter: { chapter in play(chapter: chapter, segment: nil) }
+                )
+            }
         }
         .task {
             await load()
@@ -204,6 +219,9 @@ struct BookDetailView: View {
             Spacer(minLength: 0)
 
             Menu {
+                Button("Read Book", systemImage: "book") {
+                    isReaderPresented = true
+                }
                 Button("Delete Audiobook", systemImage: "trash", role: .destructive) {
                     isDeleteConfirmationPresented = true
                 }
@@ -378,7 +396,9 @@ struct BookDetailView: View {
     }
 
     private func activeOrFirstChapter(in manifest: AudiobookManifest) -> AudiobookChapter? {
-        player.activeChapter ?? manifest.chapters.first
+        guard player.activeBookID == summary.bookID || player.activeBookID == summary.id,
+              let activeID = player.activeChapter?.id else { return manifest.chapters.first }
+        return manifest.chapters.first(where: { $0.id == activeID }) ?? manifest.chapters.first
     }
 
     private func chapterNumber(in manifest: AudiobookManifest) -> Int {
@@ -388,7 +408,8 @@ struct BookDetailView: View {
     }
 
     private func togglePlayback(using manifest: AudiobookManifest) {
-        if player.activeChapter == nil, let first = manifest.chapters.first {
+        if (player.activeBookID != summary.bookID && player.activeBookID != summary.id) || player.activeChapter == nil,
+           let first = manifest.chapters.first {
             play(chapter: first, segment: nil, autoStart: true)
             return
         }
@@ -976,6 +997,7 @@ private struct TranscriptScreen: View {
     let onExpandPlayer: () -> Void
     let onPlayChapter: (AudiobookChapter) -> Void
     let onSelectSegment: (AudiobookSegment) -> Void
+    let onOpenReader: () -> Void
     let onPanelSwipe: (DragGesture.Value) -> Void
 
     @State private var tab: TranscriptScreenTab = .transcript
@@ -1118,9 +1140,17 @@ private struct TranscriptScreen: View {
     private var tabsRow: some View {
         HStack(spacing: 0) {
             tabLabel("Chapters", target: .chapters)
-                .offset(x: 11)
             tabLabel("Transcript", target: .transcript)
-                .offset(x: -4)
+            Button(action: onOpenReader) {
+                Label("Read", systemImage: "book")
+                    .font(TranscriptDesign.avenir(14))
+                    .foregroundStyle(TranscriptDesign.tabInactive)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 55)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Read original EPUB")
         }
         .frame(height: 55)
         .frame(maxWidth: .infinity)
@@ -1137,12 +1167,12 @@ private struct TranscriptScreen: View {
         }
         .overlay(alignment: .bottom) {
             GeometryReader { geo in
-                let half = geo.size.width / 2
+                let third = geo.size.width / 3
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(TranscriptDesign.amber)
-                    .frame(width: max(0, half - 19), height: 5)
+                    .frame(width: max(0, third - 19), height: 5)
                     .position(
-                        x: tab == .transcript ? half * 1.5 - 3.5 : half * 0.5 + 3.5,
+                        x: tab == .transcript ? third * 1.5 : third * 0.5,
                         y: geo.size.height - 8.5
                     )
             }
