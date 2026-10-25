@@ -99,7 +99,7 @@ struct BookDetailView: View {
                             },
                             onSelectSegment: { segment in
                                 if let chapter = activeOrFirstChapter(in: manifest) {
-                                    play(chapter: chapter, segment: segment)
+                                    seekToSelectedSegment(chapter: chapter, segment: segment)
                                 }
                             },
                             onOpenReader: { isReaderPresented = true },
@@ -154,7 +154,9 @@ struct BookDetailView: View {
                     api: api,
                     player: player,
                     onPlayChapter: { chapter in play(chapter: chapter, segment: nil) },
-                    onPlaySegment: { chapter, segment in play(chapter: chapter, segment: segment) }
+                    onPlaySegment: { chapter, segment in
+                        seekToSelectedSegment(chapter: chapter, segment: segment)
+                    }
                 )
             }
         }
@@ -417,6 +419,11 @@ struct BookDetailView: View {
         player.togglePlayback()
     }
 
+    private func seekToSelectedSegment(chapter: AudiobookChapter, segment: AudiobookSegment) {
+        let wasPlaying = player.isPlaying
+        play(chapter: chapter, segment: segment, autoStart: wasPlaying)
+    }
+
     private func play(chapter: AudiobookChapter, segment: AudiobookSegment?, autoStart: Bool = true) {
         guard let url = api.audioURL(for: chapter) else {
             errorMessage = "Chapter has no playable audio URL."
@@ -427,7 +434,7 @@ struct BookDetailView: View {
                     title: manifest?.title ?? summary.title, author: manifest?.author ?? summary.author,
                     coverURL: api.assetURL(manifest?.coverURL ?? summary.coverURL))
         if let segment {
-            player.seek(to: segment, autoPlay: true)
+            player.seek(to: segment, autoPlay: autoStart)
         } else if shouldLoad || autoStart {
             player.play()
         }
