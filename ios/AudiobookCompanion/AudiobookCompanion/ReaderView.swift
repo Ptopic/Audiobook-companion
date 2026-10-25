@@ -25,6 +25,7 @@ struct ReaderView: View {
     let api: AudiobookAPI
     @ObservedObject var player: PlayerModel
     let onPlayChapter: (AudiobookChapter) -> Void
+    let onPlaySegment: (AudiobookChapter, AudiobookSegment) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedChapterID: String
@@ -37,13 +38,15 @@ struct ReaderView: View {
     @State private var followRequest = 0
 
     init(title: String, bookID: String, chapters: [AudiobookChapter], initialChapterID: String?,
-         api: AudiobookAPI, player: PlayerModel, onPlayChapter: @escaping (AudiobookChapter) -> Void) {
+         api: AudiobookAPI, player: PlayerModel, onPlayChapter: @escaping (AudiobookChapter) -> Void,
+         onPlaySegment: @escaping (AudiobookChapter, AudiobookSegment) -> Void) {
         self.title = title
         self.bookID = bookID
         self.chapters = chapters
         self.api = api
         self.player = player
         self.onPlayChapter = onPlayChapter
+        self.onPlaySegment = onPlaySegment
         let firstID = chapters.first?.id ?? ""
         _selectedChapterID = State(initialValue: chapters.first(where: { $0.id == initialChapterID })?.id ?? firstID)
     }
@@ -154,6 +157,13 @@ struct ReaderView: View {
                     if pagePosition != next { pagePosition = next }
                 }, onManualPageTurn: {
                     followsNarration = false
+                }, onSelectSegment: { id in
+                    guard selectedChapterID == chapterID,
+                          let chapter = selectedChapter,
+                          let segment = chapter.segments.first(where: { $0.id == id }) else { return }
+                    followsNarration = true
+                    followRequest += 1
+                    onPlaySegment(chapter, segment)
                 }, onError: { message in
                     guard selectedChapterID == chapterID else { return }
                     loadState = .failed(chapterID: chapterID, message: message)
@@ -327,17 +337,30 @@ private struct ReaderWebView: UIViewRepresentable {
     let pageTurnRequest: Int
     let onPageChange: (Int, Int) -> Void
     let onManualPageTurn: () -> Void
+    let onSelectSegment: (String) -> Void
     let onError: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(initialPageTurnRequest: pageTurnRequest, initialFollowRequest: followRequest,
-                    onPageChange: onPageChange, onManualPageTurn: onManualPageTurn, onError: onError)
+                    onPageChange: onPageChange, onManualPageTurn: onManualPageTurn,
+                    onSelectSegment: onSelectSegment, onError: onError)
     }
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        let contentWorld = WKContentWorld.world(name: "audiobook-reader")
+        configuration.userContentController.add(context.coordinator, contentWorld: contentWorld, name: "segmentTap")
+        configuration.userContentController.addUserScript(WKUserScript(source: """
+            document.addEventListener('click', event => {
+                const target = event.target;
+                if (!(target instanceof Element) ||
+                    target.closest('a, button, input, select, textarea, summary, label, [contenteditable]')) return;
+                const marker = target.closest('span[id^="kaud-"]');
+                if (marker) window.webkit.messageHandlers.segmentTap.postMessage(marker.id);
+            }, true);
+            """, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: contentWorld))
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.isOpaque = false
@@ -360,9 +383,10 @@ private struct ReaderWebView: UIViewRepresentable {
         context.coordinator.turnPage(ifRequested: pageTurnRequest, in: webView)
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, UIScrollViewDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, UIScrollViewDelegate, WKScriptMessageHandler {
         private let onPageChange: (Int, Int) -> Void
         private let onManualPageTurn: () -> Void
+        private let onSelectSegment: (String) -> Void
         private let onError: (String) -> Void
         private var rulesReady = false
         private var lastChapterID: String?
@@ -380,12 +404,20 @@ private struct ReaderWebView: UIViewRepresentable {
 
         init(initialPageTurnRequest: Int, initialFollowRequest: Int,
              onPageChange: @escaping (Int, Int) -> Void, onManualPageTurn: @escaping () -> Void,
+             onSelectSegment: @escaping (String) -> Void,
              onError: @escaping (String) -> Void) {
             lastPageTurnRequest = initialPageTurnRequest
             lastFollowRequest = initialFollowRequest
             self.onPageChange = onPageChange
             self.onManualPageTurn = onManualPageTurn
+            self.onSelectSegment = onSelectSegment
             self.onError = onError
+        }
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard pageReady, message.frameInfo.isMainFrame,
+                  let id = message.body as? String, Self.isSegmentID(id) else { return }
+            onSelectSegment(id)
         }
 
         func prepare(_ webView: WKWebView) {
@@ -456,6 +488,10 @@ private struct ReaderWebView: UIViewRepresentable {
             pendingFollowSegmentID = shouldFollow ? id : nil
             highlightRequest += 1
             let request = highlightRequest
+            if shouldFollow {
+                let scrollView = webView.scrollView
+                scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+            }
             // EPUB scripts stay disabled. App code runs in an isolated world and only
             // changes the generated segment marker's presentation.
             let script = """
@@ -471,7 +507,7 @@ private struct ReaderWebView: UIViewRepresentable {
             marker.style.setProperty('-webkit-box-decoration-break', 'clone', 'important');
             marker.setAttribute('data-reader-active', 'true');
             const rect = marker.getClientRects()[0];
-            return rect ? rect.left + window.scrollX : null;
+            return rect ? rect.left : null;
             """
             Task { @MainActor [weak self, weak webView] in
                 guard let webView else { return }
@@ -488,7 +524,9 @@ private struct ReaderWebView: UIViewRepresentable {
                 let scrollView = webView.scrollView
                 let width = scrollView.bounds.width
                 guard width > 0 else { return }
-                let absoluteX = max(0, CGFloat(truncating: x))
+                // The rect is viewport-relative. Use the same native scroll offset
+                // that paging uses, since window.scrollX can lag WKWebView scrolling.
+                let absoluteX = max(0, scrollView.contentOffset.x + CGFloat(truncating: x))
                 if scrollView.contentSize.width <= width { return }
                 let maximum = max(0, scrollView.contentSize.width - width)
                 let pageX = floor(absoluteX / width) * width

@@ -153,7 +153,8 @@ struct BookDetailView: View {
                     initialChapterID: activeOrFirstChapter(in: manifest)?.id,
                     api: api,
                     player: player,
-                    onPlayChapter: { chapter in play(chapter: chapter, segment: nil) }
+                    onPlayChapter: { chapter in play(chapter: chapter, segment: nil) },
+                    onPlaySegment: { chapter, segment in play(chapter: chapter, segment: segment) }
                 )
             }
         }
