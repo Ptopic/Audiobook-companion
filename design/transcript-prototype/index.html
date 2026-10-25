@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111315">
+  <title>Audiobook Companion - Transcript prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Avenir Next", -apple-system, BlinkMacSystemFont, sans-serif;
+      font-synthesis: none;
+      letter-spacing: 0;
+      --text: #eeedeb;
+      --muted: #b3b1af;
+      --amber: #ffc36d;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-width: 320px; min-height: 100%; }
+    body { background: #e9e7e4; }
+    button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    .phone {
+      position: relative;
+      width: 402px;
+      height: 874px;
+      margin: 12px auto;
+      overflow: hidden;
+      border-radius: 48px;
+      color: var(--text);
+      background: linear-gradient(180deg, #171a1b 0%, #111314 23%, #0b0d0e 43%, #131617 100%);
+      box-shadow: 0 20px 80px rgba(0,0,0,.28);
+    }
+    .status {
+      position: absolute;
+      inset: 0 0 auto;
+      height: 59px;
+      z-index: 2;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .time { position: absolute; left: 51px; top: 18px; font-size: 17px; line-height: 22px; font-weight: 600; color: #f7f7f7; }
+    .island { position: absolute; top: 9px; left: 50%; width: 126px; height: 36px; transform: translateX(-50%); border-radius: 23px; background: #020303; }
+    .island::after { content: ""; position: absolute; right: 16px; top: 12px; width: 10px; height: 10px; border-radius: 50%; background: #07111a; box-shadow: inset 0 0 3px #173047; }
+    .status-icons { position: absolute; top: 20px; right: 25px; display: flex; align-items: center; gap: 6px; color: #f6f6f6; }
+    .status-icons svg { display: block; }
+
+    .now-playing {
+      position: absolute;
+      top: 58px;
+      left: 14px;
+      right: 3px;
+      height: 115px;
+      border: 1px solid rgba(255,255,255,.075);
+      border-radius: 17px;
+      background: linear-gradient(145deg, #292b2c, #222425 58%, #27292a);
+      box-shadow: 0 8px 20px rgba(0,0,0,.22);
+    }
+    .mini-cover { position: absolute; top: 14px; left: 14px; width: 72px; height: 86px; display: block; object-fit: cover; border-radius: 7px; }
+    .book-title { position: absolute; top: 18px; left: 100px; margin: 0; font-size: 15.5px; line-height: 22px; font-weight: 400; white-space: nowrap; }
+    .chapter { position: absolute; top: 39px; left: 100px; margin: 0; color: #b7b7b7; font-size: 12.5px; line-height: 20px; }
+    .pause { position: absolute; top: 18px; right: 55px; width: 41px; height: 41px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 50%; color: #f5f5f4; background: rgba(255,255,255,.085); }
+    .pause svg { width: 20px; height: 22px; }
+    .collapse { position: absolute; top: 20px; right: 10px; width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border: 0; color: #dedede; background: transparent; }
+    .collapse svg { width: 22px; height: 22px; stroke-width: 1.9; }
+    .seek { position: absolute; top: 69px; left: 99px; right: 17px; height: 6px; border-radius: 4px; background: #555659; }
+    .seek-fill { display: block; width: 38%; height: 100%; border-radius: inherit; background: var(--amber); }
+    .times { position: absolute; top: 86px; left: 99px; right: 17px; display: flex; justify-content: space-between; color: #b4b2b0; font-size: 12px; line-height: 17px; }
+
+    .tabs { position: absolute; top: 185px; left: 0; right: 0; height: 55px; display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid rgba(255,255,255,.045); border-bottom: 1px solid rgba(255,255,255,.095); background: linear-gradient(90deg, #151718, #191a1a 50%, #151718); }
+    .tabs button { border: 0; padding: 0 0 4px; color: #bfc0c1; background: transparent; font-size: 14px; }
+    .tabs button:first-child { transform: translateX(11px); }
+    .tabs button:last-child { transform: translateX(-4px); }
+    .tabs button.active { color: #f0efed; }
+    .tabs::after { content: ""; position: absolute; left: calc(50% + 6px); right: 13px; bottom: 6px; height: 5px; border-radius: 3px; background: var(--amber); }
+
+    .transcript { position: absolute; top: 240px; left: 0; right: 0; bottom: 35px; overflow: hidden; }
+    .line { position: absolute; left: 14px; right: 7px; display: grid; grid-template-columns: 73px minmax(0, 1fr); column-gap: 0; padding: 13px 13px 14px; color: #e7e6e4; }
+    .line time { color: #b5b4b2; font-size: 14px; line-height: 23px; white-space: nowrap; }
+    .line p { max-width: 280px; margin: 0; font-size: 15px; line-height: 23px; font-weight: 400; }
+    .line:not(.active)::after { content: ""; position: absolute; left: 13px; right: 8px; bottom: 0; height: 1px; background: rgba(255,255,255,.07); }
+    .line.one { top: 0; height: 104px; padding-top: 21px; }
+    .line.one p { max-width: 260px; }
+    .line.one::after { display: none; }
+    .line.two { top: 104px; height: 93px; }
+    .line.three { top: 198px; height: 102px; }
+    .line.four { top: 300px; height: 78px; }
+    .line.five { top: 378px; height: 102px; }
+    .line.six { top: 480px; height: 99px; }
+    .line.active {
+      z-index: 1;
+      border: 1px solid #f8bc67;
+      border-radius: 12px;
+      color: #ffc16d;
+      background: radial-gradient(ellipse 90% 115% at 15% 30%, rgba(194,115,37,.27), transparent 82%), rgba(91,62,36,.52);
+      box-shadow: inset 0 0 16px rgba(255,183,90,.20), 0 0 10px rgba(249,170,67,.18);
+    }
+    .line.active time { color: #ffc16d; }
+    .line.active p { max-width: 250px; }
+    .home-indicator { position: absolute; bottom: 13px; left: 50%; width: 149px; height: 5px; transform: translateX(-50%); border-radius: 3px; background: #f5f5f5; }
+
+    @media (max-width: 430px) {
+      body { background: #111315; }
+      .phone { width: 100vw; height: 100dvh; min-height: 780px; margin: 0; border-radius: 0; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="phone" aria-label="Audiobook Companion transcript screen prototype">
+    <div class="status" aria-hidden="true">
+      <span class="time">9:41</span><span class="island"></span>
+      <span class="status-icons">
+        <svg width="18" height="14" viewBox="0 0 18 14" fill="currentColor"><rect x="1" y="9" width="3" height="4" rx=".5"/><rect x="5" y="6" width="3" height="7" rx=".5"/><rect x="9" y="3" width="3" height="10" rx=".5"/><rect x="13" y="1" width="3" height="12" rx=".5"/></svg>
+        <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 4.5C5.5 1 12.5 1 17 4.5M4 7.5c3-2.5 7-2.5 10 0M7 10.5c1.2-1 2.8-1 4 0"/><circle cx="9" cy="12.5" r=".7" fill="currentColor" stroke="none"/></svg>
+        <svg width="27" height="13" viewBox="0 0 27 13" fill="none"><rect x="1" y="1" width="22" height="11" rx="3" stroke="currentColor" stroke-width="1.5"/><rect x="3.5" y="3.5" width="17" height="6" rx="1" fill="currentColor"/><path d="M25 4v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </span>
+    </div>
+
+    <section class="now-playing" aria-label="Current audiobook">
+      <img class="mini-cover" src="mini-cover.png" alt="A Killer's Wife cover">
+      <h1 class="book-title">A Killer’s Wife</h1>
+      <p class="chapter">Chapter 2</p>
+      <button class="pause" aria-label="Pause"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="2" width="5" height="20" rx="2"/><rect x="14" y="2" width="5" height="20" rx="2"/></svg></button>
+      <button class="collapse" aria-label="Expand player"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 9 8 8 8-8"/></svg></button>
+      <div class="seek" aria-label="Playback progress 38 percent"><span class="seek-fill"></span></div>
+      <div class="times"><span>14:27</span><span>−22:14</span></div>
+    </section>
+
+    <nav class="tabs" aria-label="Book views"><button type="button">Chapters</button><button type="button" class="active" aria-current="page">Transcript</button></nav>
+    <section class="transcript" aria-label="Chapter transcript">
+      <div class="line one"><time>13:50</time><p>The house was quieter that morning, as if the storm had taken something with it.</p></div>
+      <div class="line two active" aria-current="true"><time>14:27</time><p>She stood at the kitchen window, watching the water settle back into its familiar rhythm.</p></div>
+      <div class="line three"><time>14:58</time><p>A mug of coffee cooled in her hands. She hadn’t slept much, but she felt clearer than expected.</p></div>
+      <div class="line four"><time>15:26</time><p>Somewhere down the hall, a door creaked. She didn’t turn around.</p></div>
+      <div class="line five"><time>15:47</time><p>The note on the counter was still there, folded in half, exactly where she had left it.</p></div>
+      <div class="line six"><time>16:12</time><p>Outside, the lake looked almost peaceful again, the kind of peaceful that made you wonder what you might be missing.</p></div>
+    </section>
+    <div class="home-indicator" aria-hidden="true"></div>
+  </main>
+</body>
+</html>

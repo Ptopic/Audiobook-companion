@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111412">
+  <title>Audiobook Companion - Home prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Avenir Next", -apple-system, BlinkMacSystemFont, sans-serif;
+      font-synthesis: none;
+      letter-spacing: 0;
+      --ink: #f1eee9;
+      --muted: #b5b0aa;
+      --amber: #f2b65f;
+      --edge: rgba(255, 255, 255, .075);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-width: 320px; min-height: 100%; }
+    body { background: #e9e7e4; }
+    button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+
+    .phone {
+      position: relative;
+      width: 402px;
+      height: 874px;
+      overflow: hidden;
+      margin: 12px auto;
+      border-radius: 48px;
+      color: var(--ink);
+      background:
+        linear-gradient(160deg, rgba(35, 37, 34, .42), transparent 38%),
+        linear-gradient(180deg, #141715 0%, #111412 61%, #111413 100%);
+      box-shadow: 0 20px 80px rgba(0, 0, 0, .28);
+    }
+
+    .status {
+      position: absolute;
+      inset: 0 0 auto;
+      height: 59px;
+      z-index: 2;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .time {
+      position: absolute;
+      left: 49px;
+      top: 18px;
+      font-size: 17px;
+      line-height: 22px;
+      font-weight: 600;
+      color: #f7f7f7;
+    }
+    .island {
+      position: absolute;
+      top: 11px;
+      left: 50%;
+      width: 122px;
+      height: 35px;
+      transform: translateX(-50%);
+      border-radius: 23px;
+      background: #020303;
+    }
+    .island::after {
+      content: "";
+      position: absolute;
+      right: 17px;
+      top: 11px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #07111a;
+      box-shadow: inset 0 0 3px #173047;
+    }
+    .status-icons {
+      position: absolute;
+      top: 20px;
+      right: 27px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #f6f6f6;
+    }
+    .status-icons svg { display: block; }
+
+    main { padding: 82px 17px 108px; }
+    .masthead { padding-left: 4px; }
+    .masthead-top { position: relative; height: 34px; }
+    h1 {
+      margin: 0;
+      font-family: "Times New Roman", Georgia, serif;
+      font-size: 29.3px;
+      line-height: 34px;
+      font-weight: 400;
+      white-space: nowrap;
+    }
+    .refresh {
+      position: absolute;
+      top: -1px;
+      right: 7px;
+      width: 47px;
+      height: 47px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255,255,255,.11);
+      border-radius: 14px;
+      background: #272827;
+      color: #e8e9e8;
+    }
+    .refresh svg { width: 22px; height: 22px; stroke-width: 1.8; }
+    .server {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 36px;
+      margin-top: 14px;
+      padding: 0 14px;
+      border: 1px solid rgba(255,255,255,.075);
+      border-radius: 19px;
+      background: linear-gradient(180deg, #242625, #1e211f);
+      color: #e0e0dd;
+      font-size: 14px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .server-dot { width: 9px; height: 9px; border-radius: 50%; background: #70d18d; }
+    .server svg { width: 10px; height: 10px; margin-left: 1px; color: #aaa9a5; }
+
+    .library-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin: 33px 9px 21px 4px;
+    }
+    h2 { position: relative; top: 3px; margin: 0; font-size: 20px; line-height: 23px; font-weight: 400; }
+    .count { position: relative; top: 4px; color: #aaa8a4; font-size: 13px; line-height: 17px; }
+    .books { display: grid; gap: 13px; }
+    .book {
+      position: relative;
+      display: flex;
+      gap: 16px;
+      width: 100%;
+      height: 185px;
+      padding: 11px 13px 13px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.045);
+      border-radius: 12px;
+      background: linear-gradient(133deg, #342d28 0%, #2c2a27 43%, #252624 100%);
+      box-shadow: 0 7px 19px rgba(0,0,0,.11);
+    }
+    .book:nth-child(2) { height: 189px; }
+    .cover {
+      flex: 0 0 124px;
+      width: 124px;
+      height: 161px;
+      display: block;
+      object-fit: fill;
+      border-radius: 6px;
+      box-shadow: 0 5px 10px rgba(0,0,0,.28);
+    }
+    .book:nth-child(2) .cover { height: 163px; }
+    .book-copy { position: relative; flex: 1; min-width: 0; padding-top: 17px; }
+    .book-title { margin: 0; font-size: 16.3px; line-height: 20px; font-weight: 400; white-space: nowrap; }
+    .author { margin: 9px 0 0; color: #b8b1a9; font-size: 13.5px; line-height: 15px; }
+    .play {
+      position: absolute;
+      right: 17px;
+      top: 20px;
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255,255,255,.24);
+      border-radius: 50%;
+      background: #151615;
+      box-shadow: 0 0 0 3px rgba(255,255,255,.025), 0 9px 19px rgba(0,0,0,.25);
+      color: #ffc275;
+    }
+    .play svg { width: 19px; height: 19px; margin-left: 2px; }
+    .progress-area { position: absolute; left: 0; right: 0; top: 92px; }
+    .progress {
+      height: 5px;
+      overflow: hidden;
+      border-radius: 5px;
+      background: #535250;
+    }
+    .progress-fill { display: block; width: 40%; height: 100%; border-radius: inherit; background: var(--amber); }
+    .book:nth-child(2) .progress-fill { width: 16%; }
+    .duration {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+      color: #b4aaa1;
+      font-size: 12px;
+      line-height: 15px;
+      white-space: nowrap;
+    }
+
+    .tabs {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 32px;
+      height: 67px;
+      display: flex;
+      border-top: 1px solid rgba(255,255,255,.13);
+      background: rgba(17,20,19,.92);
+    }
+    .tab {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: #b0b1af;
+      font-size: 11px;
+      line-height: 14px;
+    }
+    .tab svg { width: 22px; height: 22px; }
+    .tab.active { color: var(--amber); }
+    .home-indicator {
+      position: absolute;
+      left: 50%;
+      bottom: 11px;
+      width: 134px;
+      height: 5px;
+      transform: translateX(-50%);
+      border-radius: 3px;
+      background: #f5f5f5;
+    }
+
+    @media (max-width: 430px) {
+      body { background: #111412; }
+      .phone { width: 100vw; height: 100dvh; min-height: 780px; margin: 0; border-radius: 0; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="phone" aria-label="Audiobook Companion Home screen prototype">
+    <div class="status" aria-hidden="true">
+      <span class="time">9:41</span>
+      <span class="island"></span>
+      <span class="status-icons">
+        <svg width="18" height="14" viewBox="0 0 18 14" fill="currentColor"><rect x="1" y="9" width="3" height="4" rx=".5"/><rect x="5" y="6" width="3" height="7" rx=".5"/><rect x="9" y="3" width="3" height="10" rx=".5"/><rect x="13" y="1" width="3" height="12" rx=".5"/></svg>
+        <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 4.5C5.5 1 12.5 1 17 4.5M4 7.5c3-2.5 7-2.5 10 0M7 10.5c1.2-1 2.8-1 4 0"/><circle cx="9" cy="12.5" r=".7" fill="currentColor" stroke="none"/></svg>
+        <svg width="27" height="13" viewBox="0 0 27 13" fill="none"><rect x="1" y="1" width="22" height="11" rx="3" stroke="currentColor" stroke-width="1.5"/><rect x="3.5" y="3.5" width="17" height="6" rx="1" fill="currentColor"/><path d="M25 4v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </span>
+    </div>
+
+    <main>
+      <header class="masthead">
+        <div class="masthead-top">
+          <h1>Audiobook Companion</h1>
+          <button class="refresh" aria-label="Reload library" title="Reload library">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.8-4.1L3 9m0 0V4m0 5h5M4 13a8 8 0 0 0 14.8 4.1L21 15m0 0v5m0-5h-5"/></svg>
+          </button>
+        </div>
+        <button class="server" aria-label="Server books.petartopic.com">
+          <span class="server-dot"></span><span>books.petartopic.com</span>
+        </button>
+      </header>
+
+      <div class="library-heading"><h2>Your Library</h2><span class="count">2 audiobooks</span></div>
+      <section class="books" aria-label="Audiobooks">
+        <article class="book">
+          <img class="cover" src="../../ios/AudiobookCompanion/AudiobookCompanion/FixtureCover.png" alt="Fixture Book cover">
+          <div class="book-copy">
+            <h3 class="book-title">Fixture Book</h3>
+            <p class="author">Alex Rivers</p>
+            <div class="progress-area"><div class="progress"><span class="progress-fill"></span></div><div class="duration"><span>4h 12m of 10h 28m</span><span>40%</span></div></div>
+          </div>
+          <button class="play" aria-label="Play Fixture Book" title="Play Fixture Book"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3.7a1.5 1.5 0 0 1 2.3-1.3l13 8.3a1.5 1.5 0 0 1 0 2.6l-13 8.3A1.5 1.5 0 0 1 6 20.3z"/></svg></button>
+        </article>
+        <article class="book">
+          <img class="cover" src="../../ios/AudiobookCompanion/AudiobookCompanion/KillersWifeCover.png" alt="A Killer's Wife cover">
+          <div class="book-copy">
+            <h3 class="book-title">A Killer’s Wife</h3>
+            <p class="author">Tess Caldwell</p>
+            <div class="progress-area"><div class="progress"><span class="progress-fill"></span></div><div class="duration"><span>1h 26m of 9h 14m</span><span>16%</span></div></div>
+          </div>
+          <button class="play" aria-label="Play A Killer's Wife" title="Play A Killer's Wife"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3.7a1.5 1.5 0 0 1 2.3-1.3l13 8.3a1.5 1.5 0 0 1 0 2.6l-13 8.3A1.5 1.5 0 0 1 6 20.3z"/></svg></button>
+        </article>
+      </section>
+    </main>
+
+    <nav class="tabs" aria-label="Main navigation">
+      <button class="tab active" aria-current="page"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="2" width="6" height="20" rx="2"/><rect x="13" y="2" width="7" height="20" rx="2"/><rect x="16" y="9" width="2" height="4" rx="1" fill="#171a18"/></svg><span>Library</span></button>
+      <button class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="11"/><path d="m10 7 7 5-7 5z" fill="#171a18"/></svg><span>Now Playing</span></button>
+      <button class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.8 1h4.4l.7 2.6 2.3 1 2.4-1.3 3.1 3.1-1.3 2.4 1 2.3L25 12v4.4l-2.6.7-1 2.3 1.3 2.4-3.1 3.1-2.4-1.3-2.3 1L14.2 27H9.8l-.7-2.6-2.3-1-2.4 1.3-3.1-3.1 1.3-2.4-1-2.3L-1 16.4V12l2.6-.7 1-2.3-1.3-2.4 3.1-3.1 2.4 1.3 2.3-1L9.8 1Zm2.2 7a6.2 6.2 0 1 0 0 12.4A6.2 6.2 0 0 0 12 8Z" transform="translate(2 1) scale(.76)"/></svg><span>Settings</span></button>
+    </nav>
+    <div class="home-indicator" aria-hidden="true"></div>
+  </div>
+</body>
+</html>

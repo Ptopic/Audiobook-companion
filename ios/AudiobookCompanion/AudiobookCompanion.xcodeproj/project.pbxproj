@@ -1,0 +1,322 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		100000000000000000000101 /* AudiobookCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000001 /* AudiobookCompanionApp.swift */; };
+		100000000000000000000102 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000002 /* Models.swift */; };
+		100000000000000000000103 /* AudiobookAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000003 /* AudiobookAPI.swift */; };
+		100000000000000000000104 /* PlayerModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000004 /* PlayerModel.swift */; };
+		100000000000000000000105 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000005 /* LibraryView.swift */; };
+		100000000000000000000106 /* BookDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000006 /* BookDetailView.swift */; };
+		100000000000000000000107 /* FixtureCover.png in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000009 /* FixtureCover.png */; };
+		100000000000000000000108 /* KillersWifeCover.png in Resources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000000A /* KillersWifeCover.png */; };
+		100000000000000000000109 /* CreateBookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000000B /* CreateBookView.swift */; };
+		10000000000000000000010A /* PlaybackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000000C /* PlaybackPolicy.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		100000000000000000000001 /* AudiobookCompanionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudiobookCompanionApp.swift; sourceTree = "<group>"; };
+		100000000000000000000002 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		100000000000000000000003 /* AudiobookAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudiobookAPI.swift; sourceTree = "<group>"; };
+		100000000000000000000004 /* PlayerModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerModel.swift; sourceTree = "<group>"; };
+		100000000000000000000005 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		100000000000000000000006 /* BookDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookDetailView.swift; sourceTree = "<group>"; };
+		100000000000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		100000000000000000000008 /* AudiobookCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AudiobookCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		100000000000000000000009 /* FixtureCover.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = FixtureCover.png; sourceTree = "<group>"; };
+		10000000000000000000000A /* KillersWifeCover.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = KillersWifeCover.png; sourceTree = "<group>"; };
+		10000000000000000000000B /* CreateBookView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateBookView.swift; sourceTree = "<group>"; };
+		10000000000000000000000C /* PlaybackPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackPolicy.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		100000000000000000000201 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		100000000000000000000301 = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000302 /* AudiobookCompanion */,
+				100000000000000000000303 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		100000000000000000000302 /* AudiobookCompanion */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000001 /* AudiobookCompanionApp.swift */,
+				100000000000000000000002 /* Models.swift */,
+				100000000000000000000003 /* AudiobookAPI.swift */,
+				100000000000000000000004 /* PlayerModel.swift */,
+				10000000000000000000000C /* PlaybackPolicy.swift */,
+				100000000000000000000005 /* LibraryView.swift */,
+				100000000000000000000006 /* BookDetailView.swift */,
+				10000000000000000000000B /* CreateBookView.swift */,
+				100000000000000000000007 /* Info.plist */,
+				100000000000000000000009 /* FixtureCover.png */,
+				10000000000000000000000A /* KillersWifeCover.png */,
+			);
+			path = AudiobookCompanion;
+			sourceTree = "<group>";
+		};
+		100000000000000000000303 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000008 /* AudiobookCompanion.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		100000000000000000000401 /* AudiobookCompanion */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 100000000000000000000702 /* Build configuration list for PBXNativeTarget "AudiobookCompanion" */;
+			buildPhases = (
+				100000000000000000000501 /* Sources */,
+				100000000000000000000201 /* Frameworks */,
+				100000000000000000000601 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AudiobookCompanion;
+			productName = AudiobookCompanion;
+			productReference = 100000000000000000000008 /* AudiobookCompanion.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		100000000000000000000701 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					100000000000000000000401 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = 100000000000000000000703 /* Build configuration list for PBXProject "AudiobookCompanion" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 100000000000000000000301;
+			productRefGroup = 100000000000000000000303 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				100000000000000000000401 /* AudiobookCompanion */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		100000000000000000000601 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000107 /* FixtureCover.png in Resources */,
+				100000000000000000000108 /* KillersWifeCover.png in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		100000000000000000000501 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000101 /* AudiobookCompanionApp.swift in Sources */,
+				100000000000000000000102 /* Models.swift in Sources */,
+				100000000000000000000103 /* AudiobookAPI.swift in Sources */,
+				100000000000000000000104 /* PlayerModel.swift in Sources */,
+				10000000000000000000010A /* PlaybackPolicy.swift in Sources */,
+				100000000000000000000105 /* LibraryView.swift in Sources */,
+				100000000000000000000106 /* BookDetailView.swift in Sources */,
+				100000000000000000000109 /* CreateBookView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		100000000000000000000801 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		100000000000000000000802 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		100000000000000000000803 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RFRVD795TK;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AudiobookCompanion/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.petar.audiobookcompanion;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1";
+			};
+			name = Debug;
+		};
+		100000000000000000000804 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RFRVD795TK;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AudiobookCompanion/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.petar.audiobookcompanion;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		100000000000000000000702 /* Build configuration list for PBXNativeTarget "AudiobookCompanion" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				100000000000000000000803 /* Debug */,
+				100000000000000000000804 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		100000000000000000000703 /* Build configuration list for PBXProject "AudiobookCompanion" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				100000000000000000000801 /* Debug */,
+				100000000000000000000802 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 100000000000000000000701 /* Project object */;
+}

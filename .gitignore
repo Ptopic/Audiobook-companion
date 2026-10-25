@@ -1,0 +1,41 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.p8
+*.p12
+*.key
+*.mobileprovision
+id_rsa*
+id_ed25519*
+
+# Local book uploads, jobs, caches, and generated media
+/data/
+*.log
+
+# Python environments, caches, and test output
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Swift and Xcode build output and user settings
+/ios/AudiobookCompanion/build/
+/ios/AudiobookCompanion/.build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcarchive/
+*.dSYM/
+*.ipa
+
+# macOS
+.DS_Store

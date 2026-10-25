@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kindle Audio Books</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Kindle Audio Books</h1>
+          <p>Local EPUB narration with iPhone audiobook packages and legacy EPUB 3 media overlay export.</p>
+        </div>
+        <span>127.0.0.1 only</span>
+      </header>
+
+      <section class="panel">
+        <label class="upload">
+          <input id="file" type="file" accept=".epub" />
+          <strong>Upload EPUB</strong>
+        </label>
+        <div id="bookMeta"></div>
+      </section>
+
+      <section class="grid">
+        <div class="panel">
+          <h2>Chapters</h2>
+          <div id="chapters" class="chapters"></div>
+        </div>
+        <div class="panel controls">
+          <h2>Voice</h2>
+          <label>Engine
+            <select id="engine">
+              <option value="kokoro" selected>Kokoro MLX</option>
+              <option value="sine">Sine test tone (not speech)</option>
+            </select>
+          </label>
+          <label>Voice
+            <input id="voice" value="af_heart" list="voices" />
+            <datalist id="voices"></datalist>
+          </label>
+          <label>Speed
+            <input id="speed" type="range" min="0.4" max="2.5" step="0.1" value="1" />
+            <output id="speedOut">1.0</output>
+          </label>
+          <label>Pronunciation replacements
+            <textarea id="replacements" placeholder="EPUB term=spoken term&#10;Dr.=Doctor"></textarea>
+          </label>
+          <button id="preview" disabled>Preview voice</button>
+          <audio id="previewAudio" controls hidden></audio>
+          <button id="generate" disabled>Generate selected chapters</button>
+          <button id="resume" disabled>Resume current job</button>
+          <button id="cancel" disabled>Cancel job</button>
+          <button id="deleteBook" disabled>Delete book data</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Job</h2>
+        <progress id="progress" max="1" value="0"></progress>
+        <p id="status">No job yet.</p>
+        <div id="players"></div>
+        <div class="links">
+          <a id="iphonePackage" hidden>Download iPhone package ZIP</a>
+          <a id="iphoneManifest" hidden>Open iPhone manifest</a>
+          <a id="export" hidden>Download aligned EPUB</a>
+        </div>
+        <button id="uploadS3" hidden>Upload package to S3</button>
+        <p id="cloudStatus"></p>
+      </section>
+
+      <footer>iPhone listening is the primary path. Kindle media overlays remain available as experimental exports.</footer>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
