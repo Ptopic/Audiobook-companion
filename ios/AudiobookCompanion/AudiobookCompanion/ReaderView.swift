@@ -357,6 +357,7 @@ private struct ReaderWebView: UIViewRepresentable {
         webView.backgroundColor = .white
         webView.scrollView.backgroundColor = .white
         webView.scrollView.isPagingEnabled = true
+        webView.scrollView.pinchGestureRecognizer?.isEnabled = false
         webView.scrollView.alwaysBounceVertical = false
         webView.scrollView.showsVerticalScrollIndicator = false
         webView.scrollView.showsHorizontalScrollIndicator = false
@@ -394,6 +395,7 @@ private struct ReaderWebView: UIViewRepresentable {
         private var pageReady = false
         private var highlightRequest = 0
         private var tapRequest = 0
+        private var linkToken = UUID().uuidString.lowercased()
         private var pendingFollowSegmentID: String?
         private var contentSizeObservation: NSKeyValueObservation?
         private weak var webView: WKWebView?
@@ -503,6 +505,7 @@ private struct ReaderWebView: UIViewRepresentable {
             pendingFollowSegmentID = nil
             highlightRequest += 1
             tapRequest += 1
+            linkToken = UUID().uuidString.lowercased()
             webView.loadHTMLString(Self.paginated(html), baseURL: nil)
         }
 
@@ -601,8 +604,9 @@ private struct ReaderWebView: UIViewRepresentable {
         private static func paginated(_ html: String) -> String {
             guard let endOfHead = html.range(of: "</head>", options: .caseInsensitive) else { return html }
             let paginationCSS = """
+            <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
             <style id="reader-pagination">
-            html { width: 100% !important; height: 100% !important; overflow-x: auto !important; overflow-y: hidden !important; }
+            html { width: 100% !important; height: 100% !important; overflow-x: auto !important; overflow-y: hidden !important; touch-action: pan-x pan-y !important; }
             body { box-sizing: border-box !important; width: 100vw !important; min-width: 100vw !important; max-width: none !important; height: 100vh !important; min-height: 100vh !important; margin: 0 !important; padding: 26px 28px !important; column-width: calc(100vw - 56px) !important; column-gap: 56px !important; column-fill: auto !important; overflow: visible !important; }
             body img, body svg { max-width: 100% !important; max-height: calc(100vh - 52px) !important; object-fit: contain; break-inside: avoid; }
             body table, body pre { max-width: 100%; overflow-wrap: anywhere; }
@@ -618,13 +622,57 @@ private struct ReaderWebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             let url = navigationAction.request.url
+            if url?.scheme == "audiobook-reader" {
+                defer { decisionHandler(.cancel) }
+                guard pageReady, let url, url.host() == "segment",
+                      navigationAction.targetFrame?.isMainFrame != false else { return }
+                let parts = url.pathComponents
+                guard parts.count == 3, parts[1] == linkToken,
+                      Self.isSegmentID(parts[2]), url.query == nil, url.fragment == nil else { return }
+                onSelectSegment(parts[2])
+                return
+            }
             decisionHandler(url?.scheme == "about" ? .allow : .cancel)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            pageReady = true
-            applyHighlight(in: webView, shouldFollow: followsNarration)
-            reportPage(in: webView.scrollView)
+            guard let chapterID = lastChapterID else { return }
+            let token = linkToken
+            let script = """
+            const excluded = 'a, button, input, select, textarea, summary, label, [contenteditable], [role="button"], [role="link"], img, svg, video, audio, iframe, canvas, object, embed, p, div, ul, ol, li, table, blockquote';
+            for (const marker of document.querySelectorAll('span[id^="kaud-"]')) {
+                if (!/^kaud-\\d+$/.test(marker.id) || marker.closest('a') || marker.querySelector(excluded)) continue;
+                const link = document.createElement('a');
+                link.href = 'audiobook-reader://segment/' + token + '/' + marker.id;
+                link.style.setProperty('display', 'inline', 'important');
+                link.style.setProperty('color', 'inherit', 'important');
+                link.style.setProperty('font', 'inherit', 'important');
+                link.style.setProperty('letter-spacing', 'inherit', 'important');
+                link.style.setProperty('text-decoration', 'none', 'important');
+                link.style.setProperty('background-color', 'transparent', 'important');
+                link.style.setProperty('margin', '0', 'important');
+                link.style.setProperty('padding', '0', 'important');
+                link.style.setProperty('border', '0', 'important');
+                link.style.setProperty('white-space', 'inherit', 'important');
+                link.style.setProperty('user-select', 'text', 'important');
+                link.style.setProperty('-webkit-user-select', 'text', 'important');
+                link.style.setProperty('-webkit-touch-callout', 'none', 'important');
+                while (marker.firstChild) link.appendChild(marker.firstChild);
+                marker.appendChild(link);
+            }
+            return true;
+            """
+            Task { @MainActor [weak self, weak webView] in
+                guard let webView else { return }
+                _ = try? await webView.callAsyncJavaScript(
+                    script, arguments: ["token": token], in: nil,
+                    contentWorld: .world(name: "audiobook-reader")
+                )
+                guard let self, self.lastChapterID == chapterID, self.linkToken == token else { return }
+                self.pageReady = true
+                self.applyHighlight(in: webView, shouldFollow: self.followsNarration)
+                self.reportPage(in: webView.scrollView)
+            }
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
