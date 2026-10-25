@@ -161,21 +161,15 @@ struct ReaderView: View {
                 }, onManualPageTurn: {
                     followsNarration = false
                 }, onSelectSegment: { id, source in
-                    guard selectedChapterID == chapterID, let chapter = selectedChapter else { return }
+                    guard selectedChapterID == chapterID, let chapter = selectedChapter else { return false }
                     guard let segment = chapter.segments.first(where: { $0.id == id }) else {
                         showTapDiagnostic("\(source) | Marker \(id) | Not in chapter")
-                        return
+                        return false
                     }
                     followsNarration = true
                     followRequest += 1
                     onPlaySegment(chapter, segment)
-                    showTapDiagnostic("\(source) | Marker \(id) | In chapter | Seek invoked")
-                    let request = tapDiagnosticRequest
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .seconds(1.25))
-                        guard tapDiagnosticRequest == request, selectedChapterID == chapterID else { return }
-                        showSeekDiagnostic(chapter: chapter, segment: segment)
-                    }
+                    return true
                 }, onTapDiagnostic: { message in
                     guard selectedChapterID == chapterID else { return }
                     showTapDiagnostic(message)
@@ -350,30 +344,6 @@ struct ReaderView: View {
         }
     }
 
-    private func showSeekDiagnostic(chapter: AudiobookChapter, segment: AudiobookSegment) {
-        let activeChapterMatches = player.activeBookID == bookID && player.activeChapter?.id == chapter.id
-        let modelID = activeChapterMatches ? player.currentSegment?.id ?? "none" : "other chapter"
-        let actualTime = player.actualPlaybackTime
-        let actualID = activeChapterMatches
-            ? actualTime.flatMap { time in chapter.segments.last(where: { time >= $0.start && time < $0.end })?.id } ?? "none"
-            : "other chapter"
-        let actualPosition = actualTime.map { String(format: "%.2f", $0) } ?? "unavailable"
-        let status: String
-        if let error = player.playbackError {
-            status = error
-        } else if !activeChapterMatches {
-            status = "Audio chapter did not switch"
-        } else if player.isSeekPending {
-            status = "Seek still pending"
-        } else if actualTime == nil {
-            status = "Player position unavailable"
-        } else {
-            status = actualID == segment.id ? "Player at marker" : "Player at another marker"
-        }
-        let playbackState = player.isPlaying ? "playing" : "paused"
-        showTapDiagnostic("Target \(segment.id) @\(String(format: "%.2f", segment.start))s\nModel \(modelID) @\(String(format: "%.2f", player.currentTime))s | AV \(actualID) @\(actualPosition)s\n\(status) | \(playbackState)")
-    }
-
     private func loadChapter(_ chapterID: String) async {
         guard !chapterID.isEmpty else { return }
         tapDiagnosticRequest += 1
@@ -402,7 +372,7 @@ private struct ReaderWebView: UIViewRepresentable {
     let pageTurnRequest: Int
     let onPageChange: (Int, Int) -> Void
     let onManualPageTurn: () -> Void
-    let onSelectSegment: (String, String) -> Void
+    let onSelectSegment: (String, String) -> Bool
     let onTapDiagnostic: (String) -> Void
     let onError: (String) -> Void
 
@@ -447,7 +417,7 @@ private struct ReaderWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
         private let onPageChange: (Int, Int) -> Void
         private let onManualPageTurn: () -> Void
-        private let onSelectSegment: (String, String) -> Void
+        private let onSelectSegment: (String, String) -> Bool
         private let onTapDiagnostic: (String) -> Void
         private let onError: (String) -> Void
         private var rulesReady = false
@@ -458,6 +428,7 @@ private struct ReaderWebView: UIViewRepresentable {
         private var lastFollowRequest: Int
         private var activeSegmentID: String?
         private var displayedSegmentID: String?
+        private var highlightPending = false
         private var followsNarration = true
         private var pageReady = false
         private var highlightRequest = 0
@@ -468,7 +439,7 @@ private struct ReaderWebView: UIViewRepresentable {
 
         init(initialPageTurnRequest: Int, initialFollowRequest: Int,
              onPageChange: @escaping (Int, Int) -> Void, onManualPageTurn: @escaping () -> Void,
-             onSelectSegment: @escaping (String, String) -> Void,
+             onSelectSegment: @escaping (String, String) -> Bool,
              onTapDiagnostic: @escaping (String) -> Void,
              onError: @escaping (String) -> Void) {
             lastPageTurnRequest = initialPageTurnRequest
@@ -487,14 +458,11 @@ private struct ReaderWebView: UIViewRepresentable {
 
         @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
             guard recognizer.state == .ended else { return }
-            onTapDiagnostic("Tap received")
             guard pageReady, let chapterID = lastChapterID, let webView else {
-                onTapDiagnostic("Tap received | Page not ready")
                 return
             }
             let point = recognizer.location(in: webView)
             guard webView.bounds.contains(point), webView.bounds.width > 0, webView.bounds.height > 0 else {
-                onTapDiagnostic("Tap received | Outside page bounds")
                 return
             }
             let scrollOffset = webView.scrollView.contentOffset
@@ -594,25 +562,22 @@ private struct ReaderWebView: UIViewRepresentable {
                     guard abs(webView.scrollView.contentOffset.x - scrollOffset.x) < 3,
                           abs(webView.scrollView.contentOffset.y - scrollOffset.y) < 3 else { return }
                     guard let result = value as? [String: Any], let status = result["status"] as? String else {
-                        self.onTapDiagnostic("Tap received | Invalid marker result")
+                        self.onTapDiagnostic("Could not identify selected passage")
                         return
                     }
                     let mapping = result["mapping"] as? String == "viewport" ? "viewport" : "document"
                     guard status == "marker" else {
                         let detail: String
                         switch status {
-                        case "interactive":
-                            let tag = (result["tag"] as? String).flatMap { $0.count <= 32 ? $0 : nil } ?? "element"
-                            detail = "Interactive <\(tag)> tapped"
+                        case "interactive", "no-marker": return
                         case "ambiguous": detail = "Multiple markers at point"
-                        case "no-marker": detail = "No marker at point (\(mapping))"
                         default: detail = "Unexpected marker result"
                         }
-                        self.onTapDiagnostic("Tap received | \(detail)")
+                        self.onTapDiagnostic(detail)
                         return
                     }
                     guard let id = result["id"] as? String, Self.isSegmentID(id) else {
-                        self.onTapDiagnostic("Tap received | Invalid marker ID")
+                        self.onTapDiagnostic("Invalid passage marker")
                         return
                     }
                     let geometry: String
@@ -621,11 +586,15 @@ private struct ReaderWebView: UIViewRepresentable {
                     case "range": geometry = " range"
                     default: geometry = ""
                     }
-                    self.onSelectSegment(id, "Tap \(mapping)\(geometry)")
+                    if self.onSelectSegment(id, "Tap \(mapping)\(geometry)") {
+                        self.activeSegmentID = id
+                        self.followsNarration = true
+                        self.applyHighlight(in: webView, shouldFollow: true)
+                    }
                 } catch {
                     guard self.pageReady, self.lastChapterID == chapterID,
                           self.tapRequest == request else { return }
-                    self.onTapDiagnostic("Tap received | Marker lookup failed")
+                    self.onTapDiagnostic("Could not identify selected passage")
                 }
             }
         }
@@ -636,7 +605,8 @@ private struct ReaderWebView: UIViewRepresentable {
                 DispatchQueue.main.async {
                     guard let self, let webView else { return }
                     self.reportPage(in: webView.scrollView)
-                    if self.pageReady, self.followsNarration, self.pendingFollowSegmentID != nil,
+                    if self.pageReady, self.followsNarration, !self.highlightPending,
+                       self.pendingFollowSegmentID != nil,
                        webView.scrollView.contentSize.width > webView.scrollView.bounds.width {
                         self.applyHighlight(in: webView, shouldFollow: true)
                     }
@@ -670,6 +640,7 @@ private struct ReaderWebView: UIViewRepresentable {
             lastPage = nil
             pageReady = false
             displayedSegmentID = nil
+            highlightPending = false
             pendingFollowSegmentID = nil
             highlightRequest += 1
             tapRequest += 1
@@ -685,7 +656,8 @@ private struct ReaderWebView: UIViewRepresentable {
             self.followsNarration = followsNarration
             if !followsNarration { pendingFollowSegmentID = nil }
             lastFollowRequest = followRequest
-            guard pageReady, segmentChanged || followRequested || displayedSegmentID != nextID else { return }
+            guard pageReady, segmentChanged || followRequested ||
+                    (!highlightPending && displayedSegmentID != nextID) else { return }
             applyHighlight(in: webView, shouldFollow: followsNarration && (segmentChanged || followRequested))
         }
 
@@ -696,7 +668,7 @@ private struct ReaderWebView: UIViewRepresentable {
 
         private func applyHighlight(in webView: WKWebView, shouldFollow: Bool) {
             let id = activeSegmentID
-            displayedSegmentID = id
+            highlightPending = true
             pendingFollowSegmentID = shouldFollow ? id : nil
             highlightRequest += 1
             let request = highlightRequest
@@ -707,6 +679,8 @@ private struct ReaderWebView: UIViewRepresentable {
             // EPUB scripts stay disabled. App code runs in an isolated world and only
             // changes the generated segment marker's presentation.
             let script = """
+            if (request < (window.__readerHighlightRequest ?? -1)) return { applied: false };
+            window.__readerHighlightRequest = request;
             const previous = document.querySelector('span[data-reader-active="true"]');
             if (previous) {
                 previous.style.removeProperty('background-color');
@@ -714,22 +688,44 @@ private struct ReaderWebView: UIViewRepresentable {
                 previous.removeAttribute('data-reader-active');
             }
             const marker = segmentID ? document.getElementById(segmentID) : null;
-            if (!marker || marker.tagName !== 'SPAN') return null;
+            if (!segmentID) return { applied: true, found: true, x: null };
+            if (!marker || marker.tagName !== 'SPAN') return { applied: true, found: false, x: null };
             marker.style.setProperty('background-color', 'rgba(255, 183, 90, 0.34)', 'important');
             marker.style.setProperty('-webkit-box-decoration-break', 'clone', 'important');
             marker.setAttribute('data-reader-active', 'true');
             const rect = marker.getClientRects()[0];
-            return rect ? rect.left : null;
+            return { applied: true, found: true, x: rect ? rect.left : null };
             """
             Task { @MainActor [weak self, weak webView] in
-                guard let webView else { return }
-                let value = try? await webView.callAsyncJavaScript(
-                    script, arguments: ["segmentID": id.map { $0 as Any } ?? NSNull()],
-                    in: nil, contentWorld: .world(name: "audiobook-reader")
-                )
-                guard let self, self.highlightRequest == request,
-                      self.followsNarration, shouldFollow else { return }
-                guard let x = value as? NSNumber else {
+                guard let self, let webView, self.highlightRequest == request, self.pageReady else { return }
+                let result: [String: Any]
+                do {
+                    let value = try await webView.callAsyncJavaScript(
+                        script, arguments: ["segmentID": id.map { $0 as Any } ?? NSNull(), "request": request],
+                        in: nil, contentWorld: .world(name: "audiobook-reader")
+                    )
+                    guard self.highlightRequest == request, self.pageReady else { return }
+                    guard let response = value as? [String: Any], response["applied"] as? Bool == true,
+                          response["found"] as? Bool == true else {
+                        self.highlightPending = false
+                        self.displayedSegmentID = nil
+                        self.pendingFollowSegmentID = nil
+                        self.onTapDiagnostic("Could not highlight selected passage")
+                        return
+                    }
+                    result = response
+                } catch {
+                    guard self.highlightRequest == request, self.pageReady else { return }
+                    self.highlightPending = false
+                    self.displayedSegmentID = nil
+                    self.pendingFollowSegmentID = nil
+                    self.onTapDiagnostic("Could not highlight selected passage")
+                    return
+                }
+                self.highlightPending = false
+                self.displayedSegmentID = id
+                guard self.followsNarration, shouldFollow else { return }
+                guard let x = result["x"] as? NSNumber else {
                     self.pendingFollowSegmentID = nil
                     return
                 }
